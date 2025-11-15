@@ -116,7 +116,7 @@ extern "C" {
 /// @note 默认：uint8_t（最大支持 255 个节点）
 /// @note 根据实际需求选择合适的类型以平衡内存和容量
 #ifndef ZEROLIST_TYPE
-#define ZEROLIST_TYPE uint8_t
+#define ZEROLIST_TYPE uint16_t
 #endif
 
 // ===========================================
@@ -181,8 +181,8 @@ typedef struct zerolist_node
     struct zerolist_node* next;  ///< 后继节点指针
     struct
     {
-        unsigned int  in_use : 1;  ///< 节点使用标记，1表示正在使用
-        ZEROLIST_TYPE index
+        uint16_t in_use : 1;  ///< 节点使用标记，1表示正在使用
+        uint16_t index
             : ((sizeof(ZEROLIST_TYPE) << 3) - 1);  ///< 节点在缓冲区中的下标（仅静态模式有效）
     } flags;
 } zerolist_node_t;
