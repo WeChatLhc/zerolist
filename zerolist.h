@@ -179,12 +179,14 @@ typedef struct zerolist_node
     void*                 data;  ///< 节点数据指针，指向用户数据
     struct zerolist_node* prev;  ///< 前驱节点指针
     struct zerolist_node* next;  ///< 后继节点指针
+#if !ZEROLIST_USE_MALLOC
     struct
     {
         uint16_t in_use : 1;  ///< 节点使用标记，1表示正在使用
         uint16_t index
             : ((sizeof(ZEROLIST_TYPE) << 3) - 1);  ///< 节点在缓冲区中的下标（仅静态模式有效）
     } flags;
+#endif
 } zerolist_node_t;
 
 /**

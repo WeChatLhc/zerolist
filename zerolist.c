@@ -216,8 +216,7 @@ static inline zerolist_node_t* _zerolist_alloc_node(Zerolist* list)
     zerolist_node_t* node = (zerolist_node_t*)ZEROLIST_MALLOC(_ZEROLIST_NODE_SIZE);
     if (!node) return NULL;
     node->next = node->prev = node;
-    _ZERO_ZEROLIST_NODE_SET_IN_USE_SIMPLE(node);
-    node->data = NULL;
+    node->data              = NULL;
     return node;
 #else
     // 静态模式：从缓冲区分配
@@ -805,22 +804,62 @@ bool zerolist_insert_before(Zerolist* list, void* target_data, void* new_data)
 //  删除操作
 // ===========================================
 
+/*
+ *Detach the specified node from the linked list
+ *
+ *This function handles three situations:
+ *1. The separated nodes are the head and tail nodes (the linked list becomes empty)
+ *2. The separated node is the head node (update the head pointer)
+ *3. The separated node is the tail node (update the tail pointer)
+ *
+ *@param list pointer to zero-length linked list
+ *@param cur The node pointer to be separated
+ */
 static inline void _zerolist_detach_node(Zerolist* list, zerolist_node_t* cur)
 {
+    if (!list || !cur) return;
     if (cur == list->head && cur == list->tail) {
         list->head = list->tail = NULL;
-    } else {
-        cur->prev->next = cur->next;
-        cur->next->prev = cur->prev;
-        if (cur == list->head) list->head = cur->next;
-        if (cur == list->tail) list->tail = cur->prev;
+        return;
     }
+
+    // 多节点情况：必须确保 prev/next 非空
+    if (!cur->prev || !cur->next) {
+        if (cur == list->head) list->head = NULL;
+        if (cur == list->tail) list->tail = NULL;
+        return;
+    }
+
+    cur->prev->next = cur->next;
+    cur->next->prev = cur->prev;
+
+    if (cur == list->head) list->head = cur->next;
+    if (cur == list->tail) list->tail = cur->prev;
 }
 
 bool zerolist_remove(Zerolist* list, void* data)
 {
-    if (!list || !list->head) return false;
-    zerolist_node_t* cur = list->head;
+    if (!list || !data) return false;
+
+#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
+    // 静态模式：遍历 node_buf
+    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
+        zerolist_node_t* node = &list->node_buf[i];
+        if (_ZEROLIST_NODE_IS_IN_USE(node) && node->data == data) {
+            _zerolist_detach_node(list, node);
+            zerolist_free_node(list, node);
+#if ZEROLIST_SIZE_ENABLE
+            list->size--;
+#endif
+            return true;
+        }
+    }
+    return false;
+
+#else
+    if (!list->head) return false;
+    zerolist_node_t* start = list->head;
+    zerolist_node_t* cur   = start;
     do {
         if (cur->data == data) {
             _zerolist_detach_node(list, cur);
@@ -831,14 +870,34 @@ bool zerolist_remove(Zerolist* list, void* data)
             return true;
         }
         cur = cur->next;
-    } while (cur != list->head);
+        if (!cur) break;
+    } while (cur != start);
     return false;
+#endif
 }
 
 bool zerolist_remove_match(Zerolist* list, void* data, bool (*cmp_func)(const void*, const void*))
 {
-    if (!list || !list->head || !cmp_func) return false;
-    zerolist_node_t* cur = list->head;
+    if (!list || !cmp_func) return false;
+
+#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
+    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
+        zerolist_node_t* node = &list->node_buf[i];
+        if (_ZEROLIST_NODE_IS_IN_USE(node) && cmp_func(node->data, data)) {
+            _zerolist_detach_node(list, node);
+            zerolist_free_node(list, node);
+#if ZEROLIST_SIZE_ENABLE
+            list->size--;
+#endif
+            return true;
+        }
+    }
+    return false;
+
+#else
+    if (!list->head) return false;
+    zerolist_node_t* start = list->head;
+    zerolist_node_t* cur   = start;
     do {
         if (cmp_func(cur->data, data)) {
             _zerolist_detach_node(list, cur);
@@ -849,8 +908,10 @@ bool zerolist_remove_match(Zerolist* list, void* data, bool (*cmp_func)(const vo
             return true;
         }
         cur = cur->next;
-    } while (cur != list->head);
+        if (!cur) break;
+    } while (cur != start);
     return false;
+#endif
 }
 
 bool zerolist_delete(Zerolist* list, ZEROLIST_TYPE index)
@@ -897,33 +958,60 @@ void* zerolist_at(Zerolist* list, ZEROLIST_TYPE index)
 #endif
 }
 
+#define _ZEROLIST_FOREACH_NODE_STATIC(list, node_var, body)        \
+    do {                                                           \
+        for (ZEROLIST_TYPE _i = 0; _i < (list)->max_nodes; ++_i) { \
+            zerolist_node_t* node_var = &(list)->node_buf[_i];     \
+            if (_ZEROLIST_NODE_IS_IN_USE(node_var)) {              \
+                body                                               \
+            }                                                      \
+        }                                                          \
+    } while (0)
+
+#define _ZEROLIST_FOREACH_NODE_DYNAMIC(list, node_var, body) \
+    do {                                                     \
+        if ((list)->head) {                                  \
+            zerolist_node_t* _start   = (list)->head;        \
+            zerolist_node_t* node_var = _start;              \
+            do {                                             \
+                body node_var = node_var->next;              \
+                if (!node_var) break;                        \
+            } while (node_var != _start);                    \
+        }                                                    \
+    } while (0)
+
 zerolist_node_t* zerolist_find(Zerolist* list, const void* target_addr)
 {
-    if (!list || !list->head) return NULL;
-#if ZEROLIST_SIZE_ENABLE
-    zerolist_node_t* cur       = list->head;
-    ZEROLIST_TYPE    remaining = list->size;
-    while (remaining--) {
-        if (cur->data == target_addr) return cur;
-        cur = cur->next;
-        if (!cur) return NULL;
-    }
-    return NULL;
+    if (!list) return NULL;
+
+#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
+    _ZEROLIST_FOREACH_NODE_STATIC(list, node, {
+        if (node->data == target_addr) return node;
+    });
 #else
-    zerolist_node_t* cur = list->head;
-    do {
-        if (cur->data == target_addr) return cur;
-        cur = cur->next;
-        if (!cur) return NULL;
-    } while (cur != list->head);
-    return NULL;
+    _ZEROLIST_FOREACH_NODE_DYNAMIC(list, node, {
+        if (node->data == target_addr) return node;
+    });
 #endif
+    return NULL;
 }
 
 zerolist_node_t* zerolist_search(Zerolist* list, const void* target_data,
                                  bool (*cmp_func)(const void*, const void*))
 {
-    if (!list || !list->head || !cmp_func) return NULL;
+    if (!list || !cmp_func) return NULL;
+
+#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
+    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
+        zerolist_node_t* node = &list->node_buf[i];
+        if (_ZEROLIST_NODE_IS_IN_USE(node) && cmp_func(node->data, target_data)) {
+            return node;
+        }
+    }
+    return NULL;
+
+#else
+    if (!list->head) return NULL;
 #if ZEROLIST_SIZE_ENABLE
     zerolist_node_t* cur       = list->head;
     ZEROLIST_TYPE    remaining = list->size;
@@ -932,27 +1020,39 @@ zerolist_node_t* zerolist_search(Zerolist* list, const void* target_data,
         cur = cur->next;
         if (!cur) return NULL;
     }
-    return NULL;
 #else
-    zerolist_node_t* cur = list->head;
+    zerolist_node_t* start = list->head;
+    zerolist_node_t* cur   = start;
     do {
         if (cmp_func(cur->data, target_data)) return cur;
         cur = cur->next;
         if (!cur) return NULL;
-    } while (cur != list->head);
+    } while (cur != start);
+#endif
     return NULL;
 #endif
 }
-
 void zerolist_foreach(Zerolist* list, void (*callback)(void* data))
 {
-    if (!list || !callback || !list->head) return;
-    zerolist_node_t* cur = list->head;
+    if (!list || !callback) return;
+
+#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
+    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
+        zerolist_node_t* node = &list->node_buf[i];
+        if (_ZEROLIST_NODE_IS_IN_USE(node)) {
+            callback(node->data);
+        }
+    }
+#else
+    if (!list->head) return;
+    zerolist_node_t* start = list->head;
+    zerolist_node_t* cur   = start;
     do {
         callback(cur->data);
         cur = cur->next;
         if (!cur) return;
-    } while (cur != list->head);
+    } while (cur != start);
+#endif
 }
 
 // ===========================================
@@ -977,14 +1077,27 @@ void zerolist_reverse(Zerolist* list)
 
 void zerolist_clear(Zerolist* list)
 {
-    if (!list || !list->head) return;
+    if (!list) return;
+
+#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
+
+    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
+        zerolist_node_t* node = &list->node_buf[i];
+        _ZEROLIST_NODE_SET_FREE(node);
+        node->next = node->prev = node;
+        node->data              = NULL;
+    }
+#else
     zerolist_node_t* cur = list->head;
-    do {
+    while (cur) {
         zerolist_node_t* next = cur->next;
         zerolist_free_node(list, cur);
-        cur = next;
-    } while (cur != list->head);
-    list->head = list->tail = NULL;
+        cur = next == list->head ? NULL : next;
+    }
+#endif
+
+    list->head = NULL;
+    list->tail = NULL;
 #if ZEROLIST_SIZE_ENABLE
     list->size = 0;
 #endif
