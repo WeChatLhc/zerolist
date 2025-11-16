@@ -74,7 +74,7 @@ static bool _zerolist_expand_buffer(Zerolist* list, ZEROLIST_TYPE new_size);
 static inline bool _zerolist_is_static_node(Zerolist* list, zerolist_node_t* node)
 {
 #if !ZEROLIST_USE_MALLOC
-    if (!list || !list->node_buf || !node) return false;
+    if (!list->node_buf) return false;
     uintptr_t base = (uintptr_t)list->node_buf;
     uintptr_t addr = (uintptr_t)node;
     uintptr_t end  = base + (uintptr_t)list->max_nodes * (uintptr_t)_ZEROLIST_NODE_SIZE;
@@ -141,13 +141,13 @@ static inline ZEROLIST_TYPE _zerolist_calc_node_index(Zerolist* list, zerolist_n
 #endif
 
 // 释放节点到静态缓冲区（快速分配模式）
-#define _ZEROLIST_FREE_TO_STACK(list, node, idx)                                    \
-    do {                                                                            \
-        if ((list) && (list)->free_stack && (list)->free_top < (list)->max_nodes) { \
-            if ((idx) < (list)->max_nodes) {                                        \
-                (list)->free_stack[(list)->free_top++] = (idx);                     \
-            }                                                                       \
-        }                                                                           \
+#define _ZEROLIST_FREE_TO_STACK(list, node, idx)                          \
+    do {                                                                  \
+        if ((list)->free_stack && (list)->free_top < (list)->max_nodes) { \
+            if ((idx) < (list)->max_nodes) {                              \
+                (list)->free_stack[(list)->free_top++] = (idx);           \
+            }                                                             \
+        }                                                                 \
     } while (0)
 
 // 释放节点到静态缓冲区（统一接口，自动选择模式）
@@ -262,24 +262,19 @@ static inline zerolist_node_t* _zerolist_alloc_node(Zerolist* list)
  */
 void zerolist_free_node(Zerolist* list, zerolist_node_t* node)
 {
-    if (!node) return;
+    if (!list || !node) return;
 
 #if ZEROLIST_USE_MALLOC
-    // 动态模式：直接释放内存
     ZEROLIST_FREE(node);
 #else
-    // 静态模式：释放到缓冲区
 #if ZEROLIST_STATIC_FALLBACK_MALLOC
-    // 回退模式：需要判断是静态节点还是动态节点
     if (_zerolist_is_static_node(list, node)) {
         ZEROLIST_TYPE idx = _zerolist_calc_node_index(list, node);
         _ZEROLIST_FREE_STATIC_NODE(list, node, idx);
     } else {
-        // 动态分配的节点，直接释放
         ZEROLIST_FREE(node);
     }
 #else
-    // 纯静态模式：直接释放到缓冲区
     ZEROLIST_TYPE idx = _zerolist_calc_node_index(list, node);
     _ZEROLIST_FREE_STATIC_NODE(list, node, idx);
 #endif
@@ -476,44 +471,34 @@ static void _zerolist_update_node_pointers(Zerolist* list, zerolist_node_t* old_
                                            zerolist_node_t* new_buf, ZEROLIST_TYPE old_size,
                                            ZEROLIST_TYPE new_size)
 {
-    // 更新缓冲区指针（无论内存位置是否变化）
+    if (!list || !old_buf || !new_buf || new_size == 0) {
+        return;
+    }
+
     list->node_buf = new_buf;
 
-    // 如果内存位置未变化或链表为空，无需更新节点指针
     if (new_buf == old_buf || !list->head) {
         return;
     }
 
-    // 保存关键索引（在old_buf被覆盖前）
     ZEROLIST_TYPE head_idx = (ZEROLIST_TYPE)(list->head - old_buf);
-    // ZEROLIST_TYPE tail_idx = (ZEROLIST_TYPE)(list->tail - old_buf);
+    list->head             = &new_buf[head_idx];
 
-    // 更新头尾指针
-    list->head = &new_buf[head_idx];
-    // list->tail = &new_buf[tail_idx];
-
-    // 遍历更新所有节点指针
     zerolist_node_t* cur = list->head;
     do {
-        // 通过指针计算当前节点在new_buf中的索引（不再使用flags.index）
-        ZEROLIST_TYPE cur_idx = (ZEROLIST_TYPE)(cur - new_buf);
+        ZEROLIST_TYPE current_idx = (ZEROLIST_TYPE)(cur - new_buf);
+        ZEROLIST_TYPE prev_idx    = (ZEROLIST_TYPE)(cur->prev - old_buf);
+        ZEROLIST_TYPE next_idx    = (ZEROLIST_TYPE)(cur->next - old_buf);
 
-        // 计算prev/next节点的索引（相对于old_buf）
-        ZEROLIST_TYPE prev_idx = (ZEROLIST_TYPE)(cur->prev - old_buf);
-        ZEROLIST_TYPE next_idx = (ZEROLIST_TYPE)(cur->next - old_buf);
-
-        // 确保索引在有效范围内（缩容时需要）
-        if (prev_idx >= new_size) {
-            prev_idx = cur_idx;
+        if (prev_idx >= new_size || prev_idx < 0) {
+            prev_idx = current_idx;
         }
-        if (next_idx >= new_size) {
-            next_idx = cur_idx;
+        if (next_idx >= new_size || next_idx < 0) {
+            next_idx = current_idx;
         }
 
-        // 更新指针指向new_buf中的节点
         cur->prev = &new_buf[prev_idx];
         cur->next = &new_buf[next_idx];
-        // 保留字段但不使用：cur->flags.index = cur_idx;
 
         cur = cur->next;
     } while (cur != list->head);
@@ -544,7 +529,6 @@ static bool _zerolist_rollback_realloc(Zerolist* list, zerolist_node_t* new_buf,
         return false;
     }
 
-    // 如果回滚时内存位置发生变化，需要更新指针
     if (rollback_buf != new_buf && list->head) {
         _zerolist_update_node_pointers(list, new_buf, rollback_buf, new_size, old_size);
     }
@@ -573,16 +557,13 @@ static bool _zerolist_expand_buffer(Zerolist* list, ZEROLIST_TYPE new_size)
         return false;
     }
 
-    // 如果 realloc 移动了内存位置，需要更新所有节点的指针
     _zerolist_update_node_pointers(list, old_buf, new_buf, old_size, new_size);
 
 #if ZEROLIST_FAST_ALLOC
     ZEROLIST_TYPE* new_stack =
         (ZEROLIST_TYPE*)ZEROLIST_REALLOC(list->free_stack, new_size * sizeof(ZEROLIST_TYPE));
     if (!new_stack) {
-        // free_stack分配失败，回滚node_buf
         if (!_zerolist_rollback_realloc(list, new_buf, old_buf, old_size, new_size)) {
-            // 回滚失败，尝试恢复原缓冲区
             list->node_buf = old_buf;
         }
         return false;
@@ -711,7 +692,6 @@ static inline bool _zerolist_insert_internal(Zerolist* list, zerolist_node_t* po
     ZEROLIST_TYPE pos_idx       = 0;
     bool          pos_idx_valid = false;
     if (pos && _zerolist_is_static_node(list, pos)) {
-        // 不再使用flags.index，直接通过指针计算索引
         pos_idx       = (ZEROLIST_TYPE)(pos - list->node_buf);
         pos_idx_valid = true;
     }
@@ -744,18 +724,13 @@ static inline bool _zerolist_insert_internal(Zerolist* list, zerolist_node_t* po
         pos->prev->next = node;
         pos->prev       = node;
         if (pos == list->head) {
-            list->head = node;  // 只需这一行！
+            list->head = node;
         }
     } else {
         node->next      = pos->next;
         node->prev      = pos;
         pos->next->prev = node;
         pos->next       = node;
-        // if (pos == list->tail) {
-        //     list->tail       = node;
-        //     list->head->prev = list->tail;
-        //     list->tail->next = list->head;
-        // }
     }
 #if ZEROLIST_SIZE_ENABLE
     list->size++;
@@ -798,50 +773,26 @@ bool zerolist_insert_before(Zerolist* list, void* target_data, void* new_data)
  *2. The separated node is the head node (update the head pointer)
  *3. The separated node is the tail node (update the tail pointer)
  *
- *@param list pointer to zero-length linked list
- *@param cur The node pointer to be separated
+ * @param list pointer to zero-length linked list
+ * @param cur The node pointer to be separated
  */
 static inline void _zerolist_detach_node(Zerolist* list, zerolist_node_t* cur)
 {
     if (!list || !cur) return;
 
-    // 唯一节点：摘除后链表为空
     if (cur->next == cur) {
         list->head = NULL;
         return;
     }
 
-    // 安全检查（防御性编程）
-    if (!cur->prev || !cur->next) {
-        if (cur == list->head) {
-            list->head = NULL;
-        }
-        return;
-    }
-
-    // 标准双向链表摘除
-    cur->prev->next = cur->next;
-    cur->next->prev = cur->prev;
-
-    // 如果摘除的是头节点，更新 head
     if (cur == list->head) {
         list->head = cur->next;
     }
 
-    // 注意：不再处理 tail，尾部由 head->prev 隐式表示
+    cur->prev->next = cur->next;
+    cur->next->prev = cur->prev;
 }
 
-/*
- * 从循环双向链表头部移除节点并返回其数据
- *
- * @param list 指向zerolist链表的指针，不能为NULL
- * @return 返回被移除节点中存储的数据指针，如果链表为空则返回NULL
- *
- * 注意事项：
- * 1. 函数会处理链表为空或只有一个节点的情况
- * 2. 在ZEROLIST_SIZE_ENABLE定义时会自动更新链表大小
- * 3. 节点内存释放由zerolist_free_node处理
- */
 void* zerolist_pop_front(Zerolist* list)
 {
     if (!list || !list->head) return NULL;
@@ -852,22 +803,12 @@ void* zerolist_pop_front(Zerolist* list)
 #if ZEROLIST_SIZE_ENABLE
     --list->size;
 #endif
-
-    _zerolist_detach_node(list, node);  // ← 全权处理结构更新
+    _zerolist_detach_node(list, node);
     zerolist_free_node(list, node);
 
     return data;
 }
 
-/*
- * 从零列表尾部弹出节点数据
- *
- * 该函数会移除列表尾部的节点，并返回该节点中存储的数据。
- * 如果列表为空或不存在尾部节点，则返回NULL。
- *
- * @param list 指向零列表的指针，不能为NULL
- * @return 返回被弹出节点中存储的数据指针，如果操作失败则返回NULL
- */
 void* zerolist_pop_back(Zerolist* list)
 {
     if (!list || !list->head) return NULL;
@@ -879,26 +820,13 @@ void* zerolist_pop_back(Zerolist* list)
     --list->size;
 #endif
 
-    _zerolist_detach_node(list, node);  // ← 同样调用 detach
+    _zerolist_detach_node(list, node);
     zerolist_free_node(list, node);
 
     return data;
 }
 
-/*
- * 从指定索引位置弹出节点数据
- *
- * 参数:
- *   list - 指向零列表结构的指针
- *   index - 要弹出的节点索引位置
- *
- * 返回值:
- *   成功时返回被弹出节点的数据指针，失败时返回NULL
- *   失败情况包括：
- *   - 列表为空或头节点为空
- *   - 索引超出范围（当启用ZEROLIST_SIZE_ENABLE时）
- *   - 遍历到循环列表的头部（表示索引无效）
- */
+
 void* zerolist_pop_at(Zerolist* list, ZEROLIST_TYPE index)
 {
     if (!list || !list->head) return NULL;
@@ -914,7 +842,6 @@ void* zerolist_pop_at(Zerolist* list, ZEROLIST_TYPE index)
     }
 
     void* data = cur->data;
-
     _zerolist_detach_node(list, cur);
 
 #if ZEROLIST_SIZE_ENABLE
@@ -1014,6 +941,8 @@ bool zerolist_remove_at(Zerolist* list, ZEROLIST_TYPE index)
     if (!list || !list->head) return false;
 #if ZEROLIST_SIZE_ENABLE
     if (index >= list->size) return false;
+#else
+    if (index > ZEROLIST_SAFETY_LIMIT) return false;
 #endif
     zerolist_node_t* cur = list->head;
     for (ZEROLIST_TYPE i = 0; i < index; ++i) {
@@ -1154,11 +1083,10 @@ void zerolist_reverse(Zerolist* list)
 {
     if (!list || !list->head) return;
 
-    // 单节点无需反转
     if (list->head->next == list->head) return;
 
     zerolist_node_t* cur      = list->head;
-    zerolist_node_t* old_tail = list->head->prev;  // 原尾节点将成为新头
+    zerolist_node_t* old_tail = list->head->prev;
 
     do {
         zerolist_node_t* tmp = cur->next;
