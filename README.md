@@ -6,7 +6,7 @@
 
 - **MCU 友好**：默认禁止 `malloc/free`，通过 `ZEROLIST_DEFINE` 直接定义定长链表，初始化后即可 O(1) 插入、删除。
 - **自定义内存池**：可将 `ZEROLIST_MALLOC/ZEROLIST_FREE/ZEROLIST_REALLOC` 重定向到用户的 pool/region，方便与 RTOS、伙伴系统或 DMA buffer 集成。
-- **统一 API**：`zerolist_push_back`、`zerolist_delete`、`zerolist_foreach` 等接口在任何模式下保持一致，业务层无需关心底层存储差异。
+- **统一 API**：`zerolist_push_back`、`zerolist_remove_at`、`zerolist_foreach` 等接口在任何模式下保持一致，业务层无需关心底层存储差异。
 - **安全可靠**：节点状态位、索引校验、遍历安全宏以及空指针防护，阻断常见的误 delete、重复 free 等问题。
 
 ## 多种数据存储策略

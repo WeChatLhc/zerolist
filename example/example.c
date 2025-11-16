@@ -1,10 +1,10 @@
 /**
  * @file example.c
- * @brief åŒå‘å¾ªç¯é“¾è¡¨ä½¿ç”¨ç¤ºä¾‹
+ * @brief Ë«ÏòÑ­»·Á´±íÊ¹ÓÃÊ¾Àı
  * @author liuhc
  * @date 2025-11-06
  *
- * æœ¬ç¤ºä¾‹å±•ç¤ºäº†åŒå‘å¾ªç¯é“¾è¡¨åº“çš„å„ç§ä½¿ç”¨åœºæ™¯å’ŒåŠŸèƒ½ç‰¹æ€§
+ * ±¾Ê¾ÀıÕ¹Ê¾ÁËË«ÏòÑ­»·Á´±í¿âµÄ¸÷ÖÖÊ¹ÓÃ³¡¾°ºÍ¹¦ÄÜÌØĞÔ
  */
 
 #include <stdio.h>
@@ -19,638 +19,721 @@
 #include "../zerolist.h"
 
 // ===========================================
-// ç¤ºä¾‹æ•°æ®ç»“æ„
+// Ê¾ÀıÊı¾İ½á¹¹
 // ===========================================
 
-typedef struct {
-  int id;
-  char name[32];
+typedef struct
+{
+    int  id;
+    char name[32];
 } Person;
 
-#define PERF_TEST_NODE_COUNT 200
-#define PERF_TEST_ROUNDS 3
-#define RANDOM_OP_NODE_COUNT 200
-#define RANDOM_OP_ROUNDS 1000
+#define PERF_TEST_NODE_COUNT        200
+#define PERF_TEST_ROUNDS            3
+#define RANDOM_OP_NODE_COUNT        200
+#define RANDOM_OP_ROUNDS            1000
 #define RANDOM_OP_PROGRESS_INTERVAL 200
 
-static void fill_person(Person *p, int id, const char *prefix) {
-  if (!p)
-    return;
-  p->id = id;
-  snprintf(p->name, sizeof(p->name), "%s_%d", prefix ? prefix : "User", id);
+static void fill_person(Person* p, int id, const char* prefix)
+{
+    if (!p) return;
+    p->id = id;
+    snprintf(p->name, sizeof(p->name), "%s_%d", prefix ? prefix : "User", id);
 }
 
-static double now_ms(void) {
+static double now_ms(void)
+{
 #if defined(_WIN32)
-  static double inv_freq = 0.0;
-  LARGE_INTEGER counter;
-  if (inv_freq == 0.0) {
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
-    inv_freq = 1000.0 / (double)freq.QuadPart;
-  }
-  QueryPerformanceCounter(&counter);
-  return (double)counter.QuadPart * inv_freq;
+    static double inv_freq = 0.0;
+    LARGE_INTEGER counter;
+    if (inv_freq == 0.0) {
+        LARGE_INTEGER freq;
+        QueryPerformanceFrequency(&freq);
+        inv_freq = 1000.0 / (double)freq.QuadPart;
+    }
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart * inv_freq;
 #elif defined(CLOCK_MONOTONIC)
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
 #else
-  return (double)clock() * 1000.0 / (double)CLOCKS_PER_SEC;
+    return (double)clock() * 1000.0 / (double)CLOCKS_PER_SEC;
 #endif
 }
 
 // ===========================================
-// å›è°ƒå‡½æ•°ç¤ºä¾‹
+// »Øµ÷º¯ÊıÊ¾Àı
 // ===========================================
 
 /**
- * @brief æ‰“å°äººå‘˜ä¿¡æ¯
+ * @brief ´òÓ¡ÈËÔ±ĞÅÏ¢
  */
-static void print_person(void *data) {
-  if (!data)
-    return;
-  Person *p = (Person *)data;
-  printf("  [%02d] %s\n", p->id, p->name);
+static void print_person(void* data)
+{
+    if (!data) return;
+    Person* p = (Person*)data;
+    printf("  [%02d] %s\n", p->id, p->name);
 }
 
 /**
- * @brief æŒ‰ ID åŒ¹é…äººå‘˜
+ * @brief °´ ID Æ¥ÅäÈËÔ±
  */
-static bool cmp_person_id(const void *a, const void *b) {
-  return ((const Person *)a)->id == ((const Person *)b)->id;
+static bool cmp_person_id(const void* a, const void* b)
+{
+    return ((const Person*)a)->id == ((const Person*)b)->id;
 }
 
 // ===========================================
-// ç¤ºä¾‹ 1: é™æ€æ¨¡å¼ï¼ˆé»˜è®¤ï¼Œé€‚åˆ MCU åµŒå…¥å¼ï¼‰
+// Ê¾Àı 1: ¾²Ì¬Ä£Ê½£¨Ä¬ÈÏ£¬ÊÊºÏ MCU Ç¶ÈëÊ½£©
 // ===========================================
 
-void example_static_mode(void) {
-  printf("\n========== ç¤ºä¾‹ 1: é™æ€æ¨¡å¼ ==========\n");
+void example_static_mode(void)
+{
+    printf("\n========== Ê¾Àı 1: ¾²Ì¬Ä£Ê½ ==========\n");
 
-  // å®šä¹‰é™æ€é“¾è¡¨ï¼ˆé¢„åˆ†é… 32 ä¸ªèŠ‚ç‚¹ï¼‰
-  ZEROLIST_DEFINE(list, 32);
-  ZEROLIST_INIT(list);
+    // ¶¨Òå¾²Ì¬Á´±í£¨Ô¤·ÖÅä 32 ¸ö½Úµã£©
+    ZEROLIST_DEFINE(list, 32);
+    ZEROLIST_INIT(list);
 
-  // å‡†å¤‡æµ‹è¯•æ•°æ®
-  Person people[10];
-  for (int i = 0; i < 10; i++) {
-    people[i].id = i + 1;
-    sprintf(people[i].name, "User_%d", i + 1);
-  }
-
-  // åŸºæœ¬æ’å…¥æ“ä½œ
-  printf("\n1. æ’å…¥èŠ‚ç‚¹:\n");
-  for (int i = 0; i < 5; i++) {
-    zerolist_push_back(&list, &people[i]);
-  }
-  printf("   æ’å…¥å‰é“¾è¡¨å†…å®¹:\n");
-  zerolist_foreach(&list, print_person);
-  zerolist_push_front(&list, &people[5]);
-  printf("   æ’å…¥åé“¾è¡¨å†…å®¹:\n");
-  zerolist_foreach(&list, print_person);
-  zerolist_insert_before(&list, &people[2], &people[6]);
-  printf("   æ’å…¥å‰é“¾è¡¨å†…å®¹:\n");
-  zerolist_foreach(&list, print_person);
-  printf("   æ’å…¥åé“¾è¡¨å†…å®¹:\n");
-  zerolist_foreach(&list, print_person);
-
-  printf("   é“¾è¡¨å†…å®¹:\n");
-  zerolist_foreach(&list, print_person);
-  printf("   é“¾è¡¨å¤§å°: %d\n", (int)zerolist_size(&list));
-
-  // æŸ¥æ‰¾æ“ä½œ
-  printf("\n2. æŸ¥æ‰¾èŠ‚ç‚¹:\n");
-  Person *found = (Person *)zerolist_at(&list, 2);
-  if (found) {
-    printf("   ç´¢å¼• 2: %s\n", found->name);
-  }
-
-  zerolist_node_t  *node = zerolist_at(&list, 3);
-
-  // åˆ é™¤æ“ä½œ
-  printf("\n3. åˆ é™¤èŠ‚ç‚¹:\n");
-  zerolist_remove(&list, &people[1]);
-  zerolist_remove_match(&list, &people[3], cmp_person_id);
-  zerolist_delete(&list, 0);
-
-  printf("   åˆ é™¤åé“¾è¡¨:\n");
-  zerolist_foreach(&list, print_person);
-
-  // åè½¬æ“ä½œ
-  printf("\n4. åè½¬é“¾è¡¨:\n");
-  zerolist_reverse(&list);
-  printf("   åè½¬å:\n");
-  zerolist_foreach(&list, print_person);
-
-  // æ¸…ç©ºé“¾è¡¨
-  printf("\n5. æ¸…ç©ºé“¾è¡¨:\n");
-  zerolist_clear(&list);
-  printf("   æ¸…ç©ºåå¤§å°: %d\n", (int)zerolist_size(&list));
-}
-
-// ===========================================
-// ç¤ºä¾‹ 2: åŠ¨æ€æ¨¡å¼ï¼ˆé€‚åˆé€šç”¨ Linux ç¯å¢ƒï¼‰
-// ===========================================
-
-#if LIST_USE_MALLOC
-void example_dynamic_mode(void) {
-  printf("\n========== ç¤ºä¾‹ 2: åŠ¨æ€æ¨¡å¼ ==========\n");
-
-  // å®šä¹‰åŠ¨æ€é“¾è¡¨
-  DEFINE_LINKED_LIST(list, 0);
-  if (!INIT_LINKED_LIST(list)) {
-    printf("åˆå§‹åŒ–å¤±è´¥ï¼\n");
-    return;
-  }
-
-  // åŠ¨æ€åˆ†é…æµ‹è¯•æ•°æ®
-  Person *people = (Person *)malloc(10 * sizeof(Person));
-  for (int i = 0; i < 10; i++) {
-    people[i].id = i + 1;
-    sprintf(people[i].name, "Dynamic_%d", i + 1);
-  }
-
-  // æ’å…¥å¤§é‡èŠ‚ç‚¹
-  printf("\næ’å…¥ 10 ä¸ªèŠ‚ç‚¹:\n");
-  for (int i = 0; i < 10; i++) {
-    zerolist_push_back(&list, &people[i]);
-  }
-
-  printf("é“¾è¡¨å†…å®¹:\n");
-  zerolist_foreach(&list, print_person);
-  printf("é“¾è¡¨å¤§å°: %d\n", (int)zerolist_size(&list));
-
-  // å®‰å…¨éå†å¹¶åˆ é™¤
-  printf("\nå®‰å…¨éå†å¹¶åˆ é™¤ ID ä¸ºå¶æ•°çš„èŠ‚ç‚¹:\n");
-  LIST_FOR_EACH_SAFE(&list, node, tmp) {
-    Person *p = (Person *)node->data;
-    if (p && p->id % 2 == 0) {
-      zerolist_remove(&list, p);
-      printf("  åˆ é™¤: %s\n", p->name);
+    // ×¼±¸²âÊÔÊı¾İ
+    Person people[10];
+    for (int i = 0; i < 10; i++) {
+        people[i].id = i + 1;
+        sprintf(people[i].name, "User_%d", i + 1);
     }
-  }
 
-  printf("\nåˆ é™¤åé“¾è¡¨:\n");
-  zerolist_foreach(&list, print_person);
-
-  // æ¸…ç†
-  zerolist_clear(&list);
-  free(people);
-}
-#endif
-
-// ===========================================
-// ç¤ºä¾‹ 3: é™æ€æ¨¡å¼ + malloc å›é€€
-// ===========================================
-
-#if !LIST_USE_MALLOC && ZEROLIST_STATIC_FALLBACK_MALLOC
-void example_static_with_fallback(void) {
-  printf("\n========== ç¤ºä¾‹ 3: é™æ€æ¨¡å¼ + malloc å›é€€ ==========\n");
-
-  // å®šä¹‰é™æ€é“¾è¡¨ï¼ˆåªæœ‰ 5 ä¸ªèŠ‚ç‚¹ï¼‰
-  ZEROLIST_DEFINE(list, 5);
-  ZEROLIST_INIT(list);
-
-  Person people[10];
-  for (int i = 0; i < 10; i++) {
-    people[i].id = i + 1;
-    sprintf(people[i].name, "Fallback_%d", i + 1);
-  }
-
-  printf("\næ’å…¥ 10 ä¸ªèŠ‚ç‚¹ï¼ˆé™æ€ç¼“å†²åŒºåªæœ‰ 5 ä¸ªï¼‰:\n");
-  for (int i = 0; i < 10; i++) {
-    bool success = zerolist_push_back(&list, &people[i]);
-    if (success) {
-      printf("  [%d] %s - %s\n", i + 1, people[i].name,
-             i < 5 ? "é™æ€èŠ‚ç‚¹" : "åŠ¨æ€èŠ‚ç‚¹(malloc)");
+    // »ù±¾²åÈë²Ù×÷
+    printf("\n1. ²åÈë½Úµã:\n");
+    for (int i = 0; i < 5; i++) {
+        zerolist_push_back(&list, &people[i]);
     }
-  }
+    printf("   ²åÈëÇ°Á´±íÄÚÈİ:\n");
+    zerolist_foreach(&list, print_person);
+    zerolist_push_front(&list, &people[5]);
+    printf("   ²åÈëºóÁ´±íÄÚÈİ:\n");
+    zerolist_foreach(&list, print_person);
+    zerolist_insert_before(&list, &people[2], &people[6]);
+    printf("   ²åÈëÇ°Á´±íÄÚÈİ:\n");
+    zerolist_foreach(&list, print_person);
+    printf("   ²åÈëºóÁ´±íÄÚÈİ:\n");
+    zerolist_foreach(&list, print_person);
 
-  printf("\né“¾è¡¨å¤§å°: %d\n", (int)zerolist_size(&list));
-  printf("é“¾è¡¨å†…å®¹:\n");
-  zerolist_foreach(&list, print_person);
+    printf("   Á´±íÄÚÈİ:\n");
+    zerolist_foreach(&list, print_person);
+    printf("   Á´±í´óĞ¡: %d\n", (int)zerolist_size(&list));
 
-  // æ¸…ç†ï¼ˆé™æ€èŠ‚ç‚¹è‡ªåŠ¨å›æ”¶ï¼ŒåŠ¨æ€èŠ‚ç‚¹è‡ªåŠ¨ freeï¼‰
-  zerolist_clear(&list);
-#if LIST_ENABLE_FAST_ALLOC
-  printf("\næ¸…ç©ºåç©ºé—²æ ˆçŠ¶æ€: free_top=%d, max_nodes=%d\n", (int)list.free_top,
-         (int)list.max_nodes);
-#endif
-
-  printf("\næ¸…ç©ºåå†æ¬¡æ’å…¥ 5 ä¸ªèŠ‚ç‚¹ï¼ŒéªŒè¯é™æ€èŠ‚ç‚¹æ˜¯å¦å¯é‡å¤åˆ©ç”¨:\n");
-  for (int i = 0; i < 5; i++) {
-    if (zerolist_push_back(&list, &people[i])) {
-      printf("  å†æ¬¡æ’å…¥: %s\n", people[i].name);
-    } else {
-      printf("  å†æ¬¡æ’å…¥å¤±è´¥: %s\n", people[i].name);
+    // ²éÕÒ²Ù×÷
+    printf("\n2. ²éÕÒ½Úµã:\n");
+    Person* found = (Person*)zerolist_at(&list, 2);
+    if (found) {
+        printf("   Ë÷Òı 2: %s\n", found->name);
     }
-  }
-  printf("  ç¬¬äºŒè½®é“¾è¡¨å¤§å°: %d\n", (int)zerolist_size(&list));
-#if LIST_ENABLE_FAST_ALLOC
-  printf("  å½“å‰ free_top=%d (æœŸæœ›=%d)\n", (int)list.free_top,
-         (int)(list.max_nodes - zerolist_size(&list)));
-#endif
 
-  zerolist_clear(&list);
-}
-#endif
+    zerolist_node_t* node = zerolist_at(&list, 3);
 
-// ===========================================
-// ç¤ºä¾‹ 4: é™æ€æ¨¡å¼ + åŠ¨æ€æ‰©å®¹
-// ===========================================
+    // É¾³ı²Ù×÷
+    printf("\n3. É¾³ı½Úµã:\n");
+    zerolist_remove_ptr(&list, &people[1]);
+    zerolist_remove_if(&list, &people[3], cmp_person_id);
+    zerolist_remove_at(&list, 0);
 
-#if !LIST_USE_MALLOC && ZEROLIST_STATIC_DYNAMIC_EXPAND
-void example_dynamic_expand(void) {
-  printf("\n========== ç¤ºä¾‹ 4: é™æ€æ¨¡å¼ + åŠ¨æ€æ‰©å®¹ ==========\n");
+    printf("   É¾³ıºóÁ´±í:\n");
+    zerolist_foreach(&list, print_person);
 
-  // å®šä¹‰åŠ¨æ€æ‰©å®¹é“¾è¡¨ï¼ˆåˆå§‹ 4 ä¸ªèŠ‚ç‚¹ï¼‰
-  ZEROLIST_DEFINE(list, 4);
-  if (!ZEROLIST_INIT(list)) {
-    printf("åˆå§‹åŒ–å¤±è´¥ï¼\n");
-    return;
-  }
+    // ·´×ª²Ù×÷
+    printf("\n4. ·´×ªÁ´±í:\n");
+    zerolist_reverse(&list);
+    printf("   ·´×ªºó:\n");
+    zerolist_foreach(&list, print_person);
 
-  Person people[20];
-  for (int i = 0; i < 20; i++) {
-    people[i].id = i + 1;
-    sprintf(people[i].name, "Expand_%d", i + 1);
-  }
-
-  printf("\næ’å…¥ 20 ä¸ªèŠ‚ç‚¹ï¼ˆåˆå§‹ç¼“å†²åŒº 4 ä¸ªï¼Œä¼šè‡ªåŠ¨æ‰©å®¹ï¼‰:\n");
-  for (int i = 0; i < 20; i++) {
-    zerolist_push_back(&list, &people[i]);
-    if (i == 3 || i == 7 || i == 15) {
-      printf("  æ’å…¥ç¬¬ %d ä¸ªèŠ‚ç‚¹åï¼Œç¼“å†²åŒºå¤§å°: %d\n", i + 1,
-             (int)list.max_nodes);
-    }
-  }
-
-  printf("\næœ€ç»ˆç¼“å†²åŒºå¤§å°: %d\n", (int)list.max_nodes);
-  printf("é“¾è¡¨å¤§å°: %d\n", (int)zerolist_size(&list));
-  printf("é“¾è¡¨å†…å®¹ï¼ˆå‰ 10 ä¸ªï¼‰:\n");
-
-  // åªæ‰“å°å‰ 10 ä¸ª
-  int count = 0;
-  ZEROLIST_FOR_EACH(&list, node) {
-    if (count++ >= 10)
-      break;
-    print_person(node->data);
-  }
-
-  // é”€æ¯é“¾è¡¨ï¼ˆé‡Šæ”¾åŠ¨æ€åˆ†é…çš„ç¼“å†²åŒºï¼‰
-  zerolist_destroy(&list);
-  printf("\né“¾è¡¨å·²é”€æ¯ï¼Œå†…å­˜å·²é‡Šæ”¾\n");
-}
-#endif
-
-// ===========================================
-// ç¤ºä¾‹ 5: éå†å®çš„ä½¿ç”¨
-// ===========================================
-
-void example_traversal_macros(void) {
-  printf("\n========== ç¤ºä¾‹ 5: éå†å®çš„ä½¿ç”¨ ==========\n");
-
-  ZEROLIST_DEFINE(list, 20);
-  ZEROLIST_INIT(list);
-
-  Person people[8];
-  for (int i = 0; i < 8; i++) {
-    people[i].id = i + 1;
-    sprintf(people[i].name, "Traverse_%d", i + 1);
-    zerolist_push_back(&list, &people[i]);
-  }
-
-  // ä½¿ç”¨ LIST_FOR_EACHï¼ˆä¸å®‰å…¨ï¼Œä¸èƒ½åˆ é™¤èŠ‚ç‚¹ï¼‰
-  printf("\n1. ZEROLIST_FOR_EACH éå†:\n");
-  ZEROLIST_FOR_EACH(&list, node) {
-    Person *p = (Person *)node->data;
-    printf("  %s\n", p->name);
-  }
-
-  // ä½¿ç”¨ LIST_FOR_EACH_SAFEï¼ˆå®‰å…¨ï¼Œå¯ä»¥åˆ é™¤èŠ‚ç‚¹ï¼‰
-  printf("\n2. LIST_FOR_EACH_SAFE éå†å¹¶åˆ é™¤ ID>5 çš„èŠ‚ç‚¹:\n");
-  ZEROLIST_FOR_EACH_SAFE(&list, node, tmp) {
-    Person *p = (Person *)node->data;
-    if (p && p->id > 5) {
-      printf("  åˆ é™¤: %s\n", p->name);
-      zerolist_remove(&list, p);
-    }
-  }
-
-  printf("\nåˆ é™¤åå‰©ä½™èŠ‚ç‚¹:\n");
-  ZEROLIST_FOR_EACH(&list, node) {
-    Person *p = (Person *)node->data;
-    printf("  %s\n", p->name);
-  }
-
-  zerolist_clear(&list);
-}
-
-// ===========================================
-// ç¤ºä¾‹ 6: æ€§èƒ½è¯„ä¼°
-// ===========================================
-
-void example_performance_suite(void) {
-  printf("\n========== ç¤ºä¾‹ 6: æ€§èƒ½è¯„ä¼° ==========\n");
-
-  ZEROLIST_DEFINE(list, PERF_TEST_NODE_COUNT);
-  ZEROLIST_INIT(list);
-
-  Person *dataset = (Person *)malloc(sizeof(Person) * PERF_TEST_NODE_COUNT);
-  if (!dataset) {
-    printf("  æ— æ³•åˆ†é…æµ‹è¯•æ•°æ®ï¼Œè·³è¿‡æ­¤ç¤ºä¾‹\n");
-    return;
-  }
-
-  for (int i = 0; i < PERF_TEST_NODE_COUNT; ++i) {
-    fill_person(&dataset[i], i + 1, "Perf");
-  }
-
-  double total_insert_ms = 0.0;
-  double total_traverse_ms = 0.0;
-  double total_delete_ms = 0.0;
-
-  for (int round = 0; round < PERF_TEST_ROUNDS; ++round) {
+    // Çå¿ÕÁ´±í
+    printf("\n5. Çå¿ÕÁ´±í:\n");
     zerolist_clear(&list);
-    // æ’å…¥
-    double start = now_ms();
-    for (int i = 0; i < PERF_TEST_NODE_COUNT; ++i) {
-      if (!zerolist_push_back(&list, &dataset[i])) {
-        printf("  Round %d: æ’å…¥å¤±è´¥äºèŠ‚ç‚¹ %d\n", round + 1, i + 1);
-        break;
-      }
-    }
-    double insert_ms = now_ms() - start;
-    total_insert_ms += insert_ms;
-
-    // éå†
-    start = now_ms();
-    ZEROLIST_FOR_EACH(&list, node) {
-      volatile int sink = ((Person *)node->data)->id;
-      (void)sink;
-    }
-    double traverse_ms = now_ms() - start;
-    total_traverse_ms += traverse_ms;
-
-    // åˆ é™¤
-    start = now_ms();
-    for (int i = 0; i < PERF_TEST_NODE_COUNT; ++i) {
-      if (!zerolist_delete(&list, 0)) {
-        break;
-      }
-    }
-    double delete_ms = now_ms() - start;
-    total_delete_ms += delete_ms;
-
-    printf("  Round %d: æ’å…¥ %.3f ms, éå† %.3f ms, åˆ é™¤ %.3f ms\n", round + 1,
-           insert_ms, traverse_ms, delete_ms);
-  }
-
-  zerolist_clear(&list);
-
-  printf("  å¹³å‡æ’å…¥è€—æ—¶: %.3f ms\n", total_insert_ms / PERF_TEST_ROUNDS);
-  printf("  å¹³å‡éå†è€—æ—¶: %.3f ms\n", total_traverse_ms / PERF_TEST_ROUNDS);
-  printf("  å¹³å‡åˆ é™¤è€—æ—¶: %.3f ms\n", total_delete_ms / PERF_TEST_ROUNDS);
-
-  free(dataset);
+    printf("   Çå¿Õºó´óĞ¡: %d\n", (int)zerolist_size(&list));
 }
 
 // ===========================================
-// ç¤ºä¾‹ 7: é²æ£’æ€§ä¸è¾¹ç•ŒéªŒè¯
+// Ê¾Àı 2: ¶¯Ì¬Ä£Ê½£¨ÊÊºÏÍ¨ÓÃ Linux »·¾³£©
 // ===========================================
-
-void example_robustness_suite(void) {
-  printf("\n========== ç¤ºä¾‹ 7: é²æ£’æ€§ä¸è¾¹ç•ŒéªŒè¯ ==========\n");
-
-  ZEROLIST_DEFINE(list, 4);
-  ZEROLIST_INIT(list);
-  Person data[4];
-  for (int i = 0; i < 4; ++i) {
-    fill_person(&data[i], i + 1, "Safe");
-  }
-
-  printf("  1) å¡«æ»¡ç¼“å†²åŒº:\n");
-  for (int i = 0; i < 4; ++i) {
-    bool ok = zerolist_push_back(&list, &data[i]);
-    printf("     æ’å…¥ %s -> %s\n", data[i].name, ok ? "PASS" : "FAIL");
-  }
-
-  bool overflow = zerolist_push_back(&list, &data[0]);
-  printf("  2) ç¼“å†²åŒºæ»¡åç»§ç»­æ’å…¥ï¼ˆæœŸæœ›å¤±è´¥ï¼‰: %s\n",
-         overflow ? "FAIL" : "PASS");
-
-  bool invalid_index = zerolist_delete(&list, 10);
-  printf("  3) åˆ é™¤è¶Šç•Œç´¢å¼•ï¼ˆæœŸæœ›å¤±è´¥ï¼‰: %s\n",
-         invalid_index ? "FAIL" : "PASS");
-
-  bool remove_existing = zerolist_remove(&list, &data[0]);
-  bool remove_twice = zerolist_remove(&list, &data[0]);
-  printf("  4) åˆ é™¤å­˜åœ¨èŠ‚ç‚¹: %s, é‡å¤åˆ é™¤: %s\n",
-         remove_existing ? "PASS" : "FAIL", remove_twice ? "FAIL" : "PASS");
-
-  void *result = zerolist_at(&list, 5);
-  printf("  5) è®¿é—®è¶Šç•Œç´¢å¼•è¿”å› NULL: %s\n", result ? "FAIL" : "PASS");
-
-  zerolist_clear(&list);
-  zerolist_clear(&list);
-  printf("  6) å¤šæ¬¡æ¸…ç©ºé“¾è¡¨: PASS\n");
-}
-
-// ===========================================
-// ç¤ºä¾‹ 8: ç©ºæŒ‡é’ˆä¸è¯¯æ“ä½œéªŒè¯
-// ===========================================
-
-void example_null_and_misuse_suite(void) {
-  printf("\n========== ç¤ºä¾‹ 8: ç©ºæŒ‡é’ˆä¸è¯¯æ“ä½œéªŒè¯ ==========\n");
-
-  printf("  1) NULL é“¾è¡¨æŒ‡é’ˆå¤„ç†:\n");
-  printf("     zerolist_push_back(NULL, NULL): %s\n",
-         zerolist_push_back(NULL, NULL) ? "FAIL" : "PASS");
-  printf("     zerolist_remove(NULL, NULL): %s\n",
-         zerolist_remove(NULL, NULL) ? "FAIL" : "PASS");
-  zerolist_clear(NULL);
-  zerolist_free_node(NULL, NULL);
-  printf("     zerolist_clear/zerolist_free_node(NULL): PASS (æœªå´©æºƒ)\n");
-
-  printf("  2) æœªåˆå§‹åŒ–é“¾è¡¨:\n");
-  Zerolist dummy = {0};
-  Person tmp;
-  fill_person(&tmp, 1, "Dummy");
-  printf("     æœªåˆå§‹åŒ– zerolist_push_back: %s\n",
-         zerolist_push_back(&dummy, &tmp) ? "FAIL" : "PASS");
-
-  printf("  3) æ­£å¸¸é“¾è¡¨ä¸Šçš„è¯¯æ“ä½œ:\n");
-  ZEROLIST_DEFINE(list, 3);
-  ZEROLIST_INIT(list);
-  Person people[3];
-  for (int i = 0; i < 3; ++i) {
-    fill_person(&people[i], i + 1, "Err");
-    zerolist_push_back(&list, &people[i]);
-  }
-  bool remove_null = zerolist_remove(&list, NULL);
-  printf("     zerolist_remove(&list, NULL): %s\n", remove_null ? "FAIL" : "PASS");
-
-  bool del_ok = zerolist_delete(&list, 1);
-  bool del_invalid = zerolist_delete(&list, 10);
-  printf("     åˆ é™¤æœ‰æ•ˆç´¢å¼•: %s, åˆ é™¤æ— æ•ˆç´¢å¼•: %s\n", del_ok ? "PASS" : "FAIL",
-         del_invalid ? "FAIL" : "PASS");
-
-  bool second_clear = false;
-  zerolist_clear(&list);
-  second_clear = true;
-  zerolist_clear(&list);
-  printf("     é‡å¤æ¸…ç©ºé“¾è¡¨: %s\n", second_clear ? "PASS" : "FAIL");
-}
-
-// ===========================================
-// ç¤ºä¾‹ 9: éšæœºæ“ä½œå‹æµ‹ï¼ˆæ’å…¥ / æŸ¥æ‰¾ / åˆ é™¤ï¼‰
-// ===========================================
-void example_random_ops_suite(void) {
-  printf("\n========== ç¤ºä¾‹ 9: éšæœºæ“ä½œå‹æµ‹ ==========\n");
-
-  ZEROLIST_DEFINE(list, RANDOM_OP_NODE_COUNT);
-  ZEROLIST_INIT(list);
-
-  Person *pool = (Person *)malloc(sizeof(Person) * RANDOM_OP_NODE_COUNT);
-  if (!pool) {
-    printf("  æ— æ³•åˆ†é…æµ‹è¯•æ•°æ®ï¼Œè·³è¿‡æ­¤ç¤ºä¾‹\n");
-    return;
-  }
-
-  // è®°å½•æ•°æ®åˆå§‹åŒ–æ—¶é—´
-  double init_start = now_ms();
-  for (int i = 0; i < RANDOM_OP_NODE_COUNT; ++i) {
-    fill_person(&pool[i], i + 1, "Rnd");
-  }
-  double init_time = now_ms() - init_start;
-
-  srand((unsigned int)time(NULL));
-  size_t current_size = 0;
-
-  size_t insert_ops = 0, find_ops = 0, delete_ops = 0;
-  size_t find_hits = 0;
-  double insert_time = 0.0, find_time = 0.0, delete_time = 0.0;
-
-  // è®°å½•æ€»æ“ä½œæ—¶é—´
-  double total_start = now_ms();
-  for (int op = 0; op < RANDOM_OP_ROUNDS; ++op) {
-    int action = rand() % 3; // 0 insert, 1 find, 2 delete
-
-    if (action == 0) {
-      if (current_size >= RANDOM_OP_NODE_COUNT) {
-        continue;
-      }
-      ZEROLIST_TYPE idx = (ZEROLIST_TYPE)(rand() % RANDOM_OP_NODE_COUNT);
-      double start = now_ms();
-      bool ok = zerolist_push_back(&list, &pool[idx]);
-      insert_time += now_ms() - start;
-      insert_ops++;
-      if (ok) {
-        current_size++;
-      }
-    } else if (action == 1) {
-      if (current_size == 0)
-        continue;
-      ZEROLIST_TYPE idx = (ZEROLIST_TYPE)(rand() % RANDOM_OP_NODE_COUNT);
-      double start = now_ms();
-      zerolist_node_t  *node = zerolist_at(&list, idx);
-      find_time += now_ms() - start;
-      find_ops++;
-      if (node) {
-        find_hits++;
-      }
-    } else {
-      if (current_size == 0)
-        continue;
-      ZEROLIST_TYPE idx = (ZEROLIST_TYPE)(rand() % current_size);
-      double start = now_ms();
-      bool ok = zerolist_delete(&list, idx);
-      delete_time += now_ms() - start;
-      delete_ops++;
-      if (ok) {
-        current_size--;
-      }
-    }
-  }
-  double total_op_time = now_ms() - total_start;
-
-  // è®°å½•æ¸…ç†æ—¶é—´
-  double cleanup_start = now_ms();
-  zerolist_clear(&list);
-  free(pool);
-  double cleanup_time = now_ms() - cleanup_start;
-
-  printf("  æœ€ç»ˆé“¾è¡¨å¤§å°: %d\n", (int)zerolist_size(&list));
-  printf("  è¿è¡Œéšæœºæ“ä½œæ€»æ•°: %d\n", RANDOM_OP_ROUNDS);
-  printf("  æ•°æ®åˆå§‹åŒ–æ—¶é—´: %.3f ms\n", init_time);
-  printf("  æ€»æ“ä½œæ—¶é—´: %.3f ms\n", total_op_time);
-  printf("  æ¸…ç†æ—¶é—´: %.3f ms\n", cleanup_time);
-  printf("  æ’å…¥: %zu æ¬¡, æ€»è€—æ—¶ %.3f ms, å¹³å‡ %.3f us\n", insert_ops,
-         insert_time, insert_ops ? (insert_time * 1000.0 / insert_ops) : 0.0);
-  printf("  æŸ¥æ‰¾: %zu æ¬¡, å‘½ä¸­ %zu, æ€»è€—æ—¶ %.3f ms, å¹³å‡ %.3f us\n", find_ops,
-         find_hits, find_time,
-         find_ops ? (find_time * 1000.0 / find_ops) : 0.0);
-  printf("  åˆ é™¤: %zu æ¬¡, æ€»è€—æ—¶ %.3f ms, å¹³å‡ %.3f us\n", delete_ops,
-         delete_time, delete_ops ? (delete_time * 1000.0 / delete_ops) : 0.0);
-
-  // è®¡ç®—å„æ“ä½œæ—¶é—´å æ¯”
-  double total_actual_op_time = insert_time + find_time + delete_time;
-  if (total_actual_op_time > 0) {
-    printf("  æ’å…¥æ—¶é—´å æ¯”: %.2f%%\n",
-           (insert_time / total_actual_op_time) * 100.0);
-    printf("  æŸ¥æ‰¾æ—¶é—´å æ¯”: %.2f%%\n",
-           (find_time / total_actual_op_time) * 100.0);
-    printf("  åˆ é™¤æ—¶é—´å æ¯”: %.2f%%\n",
-           (delete_time / total_actual_op_time) * 100.0);
-  }
-}
-
-// ===========================================
-// ä¸»å‡½æ•°
-// ===========================================
-
-int main(void) {
-  printf("========================================\n");
-  printf("  åŒå‘å¾ªç¯é“¾è¡¨åº“ä½¿ç”¨ç¤ºä¾‹\n");
-  printf("========================================\n");
-
-  // ç¤ºä¾‹ 1: é™æ€æ¨¡å¼ï¼ˆæ€»æ˜¯å¯ç”¨ï¼‰
-  example_static_mode();
 
 #if LIST_USE_MALLOC
-  // ç¤ºä¾‹ 2: åŠ¨æ€æ¨¡å¼
-  example_dynamic_mode();
+void example_dynamic_mode(void)
+{
+    printf("\n========== Ê¾Àı 2: ¶¯Ì¬Ä£Ê½ ==========\n");
+
+    // ¶¨Òå¶¯Ì¬Á´±í
+    DEFINE_LINKED_LIST(list, 0);
+    if (!INIT_LINKED_LIST(list)) {
+        printf("³õÊ¼»¯Ê§°Ü£¡\n");
+        return;
+    }
+
+    // ¶¯Ì¬·ÖÅä²âÊÔÊı¾İ
+    Person* people = (Person*)malloc(10 * sizeof(Person));
+    for (int i = 0; i < 10; i++) {
+        people[i].id = i + 1;
+        sprintf(people[i].name, "Dynamic_%d", i + 1);
+    }
+
+    // ²åÈë´óÁ¿½Úµã
+    printf("\n²åÈë 10 ¸ö½Úµã:\n");
+    for (int i = 0; i < 10; i++) {
+        zerolist_push_back(&list, &people[i]);
+    }
+
+    printf("Á´±íÄÚÈİ:\n");
+    zerolist_foreach(&list, print_person);
+    printf("Á´±í´óĞ¡: %d\n", (int)zerolist_size(&list));
+
+    // °²È«±éÀú²¢É¾³ı
+    printf("\n°²È«±éÀú²¢É¾³ı ID ÎªÅ¼ÊıµÄ½Úµã:\n");
+    LIST_FOR_EACH_SAFE(&list, node, tmp)
+    {
+        Person* p = (Person*)node->data;
+        if (p && p->id % 2 == 0) {
+            zerolist_remove_ptr(&list, p);
+            printf("  É¾³ı: %s\n", p->name);
+        }
+    }
+
+    printf("\nÉ¾³ıºóÁ´±í:\n");
+    zerolist_foreach(&list, print_person);
+
+    // ÇåÀí
+    zerolist_clear(&list);
+    free(people);
+}
+#endif
+
+// ===========================================
+// Ê¾Àı 3: ¾²Ì¬Ä£Ê½ + malloc »ØÍË
+// ===========================================
+
+#if !LIST_USE_MALLOC && ZEROLIST_STATIC_FALLBACK_MALLOC
+void example_static_with_fallback(void)
+{
+    printf("\n========== Ê¾Àı 3: ¾²Ì¬Ä£Ê½ + malloc »ØÍË ==========\n");
+
+    // ¶¨Òå¾²Ì¬Á´±í£¨Ö»ÓĞ 5 ¸ö½Úµã£©
+    ZEROLIST_DEFINE(list, 5);
+    ZEROLIST_INIT(list);
+
+    Person people[10];
+    for (int i = 0; i < 10; i++) {
+        people[i].id = i + 1;
+        sprintf(people[i].name, "Fallback_%d", i + 1);
+    }
+
+    printf("\n²åÈë 10 ¸ö½Úµã£¨¾²Ì¬»º³åÇøÖ»ÓĞ 5 ¸ö£©:\n");
+    for (int i = 0; i < 10; i++) {
+        bool success = zerolist_push_back(&list, &people[i]);
+        if (success) {
+            printf("  [%d] %s - %s\n", i + 1, people[i].name,
+                   i < 5 ? "¾²Ì¬½Úµã" : "¶¯Ì¬½Úµã(malloc)");
+        }
+    }
+
+    printf("\nÁ´±í´óĞ¡: %d\n", (int)zerolist_size(&list));
+    printf("Á´±íÄÚÈİ:\n");
+    zerolist_foreach(&list, print_person);
+
+    // ÇåÀí£¨¾²Ì¬½Úµã×Ô¶¯»ØÊÕ£¬¶¯Ì¬½Úµã×Ô¶¯ free£©
+    zerolist_clear(&list);
+#if LIST_ENABLE_FAST_ALLOC
+    printf("\nÇå¿Õºó¿ÕÏĞÕ»×´Ì¬: free_top=%d, max_nodes=%d\n", (int)list.free_top,
+           (int)list.max_nodes);
+#endif
+
+    printf("\nÇå¿ÕºóÔÙ´Î²åÈë 5 ¸ö½Úµã£¬ÑéÖ¤¾²Ì¬½ÚµãÊÇ·ñ¿ÉÖØ¸´ÀûÓÃ:\n");
+    for (int i = 0; i < 5; i++) {
+        if (zerolist_push_back(&list, &people[i])) {
+            printf("  ÔÙ´Î²åÈë: %s\n", people[i].name);
+        } else {
+            printf("  ÔÙ´Î²åÈëÊ§°Ü: %s\n", people[i].name);
+        }
+    }
+    printf("  µÚ¶şÂÖÁ´±í´óĞ¡: %d\n", (int)zerolist_size(&list));
+#if LIST_ENABLE_FAST_ALLOC
+    printf("  µ±Ç° free_top=%d (ÆÚÍû=%d)\n", (int)list.free_top,
+           (int)(list.max_nodes - zerolist_size(&list)));
+#endif
+
+    zerolist_clear(&list);
+}
+#endif
+
+// ===========================================
+// Ê¾Àı 4: ¾²Ì¬Ä£Ê½ + ¶¯Ì¬À©Èİ
+// ===========================================
+
+#if !LIST_USE_MALLOC && ZEROLIST_STATIC_DYNAMIC_EXPAND
+void example_dynamic_expand(void)
+{
+    printf("\n========== Ê¾Àı 4: ¾²Ì¬Ä£Ê½ + ¶¯Ì¬À©Èİ ==========\n");
+
+    // ¶¨Òå¶¯Ì¬À©ÈİÁ´±í£¨³õÊ¼ 4 ¸ö½Úµã£©
+    ZEROLIST_DEFINE(list, 4);
+    if (!ZEROLIST_INIT(list)) {
+        printf("³õÊ¼»¯Ê§°Ü£¡\n");
+        return;
+    }
+
+    Person people[20];
+    for (int i = 0; i < 20; i++) {
+        people[i].id = i + 1;
+        sprintf(people[i].name, "Expand_%d", i + 1);
+    }
+
+    printf("\n²åÈë 20 ¸ö½Úµã£¨³õÊ¼»º³åÇø 4 ¸ö£¬»á×Ô¶¯À©Èİ£©:\n");
+    for (int i = 0; i < 20; i++) {
+        zerolist_push_back(&list, &people[i]);
+        if (i == 3 || i == 7 || i == 15) {
+            printf("  ²åÈëµÚ %d ¸ö½Úµãºó£¬»º³åÇø´óĞ¡: %d\n", i + 1, (int)list.max_nodes);
+        }
+    }
+
+    printf("\n×îÖÕ»º³åÇø´óĞ¡: %d\n", (int)list.max_nodes);
+    printf("Á´±í´óĞ¡: %d\n", (int)zerolist_size(&list));
+    printf("Á´±íÄÚÈİ£¨Ç° 10 ¸ö£©:\n");
+
+    // Ö»´òÓ¡Ç° 10 ¸ö
+    int count = 0;
+    ZEROLIST_FOR_EACH(&list, node)
+    {
+        if (count++ >= 10) break;
+        print_person(node->data);
+    }
+
+    // Ïú»ÙÁ´±í£¨ÊÍ·Å¶¯Ì¬·ÖÅäµÄ»º³åÇø£©
+    zerolist_destroy(&list);
+    printf("\nÁ´±íÒÑÏú»Ù£¬ÄÚ´æÒÑÊÍ·Å\n");
+}
+#endif
+
+// ===========================================
+// Ê¾Àı 5: ±éÀúºêµÄÊ¹ÓÃ
+// ===========================================
+
+void example_traversal_macros(void)
+{
+    printf("\n========== Ê¾Àı 5: ±éÀúºêµÄÊ¹ÓÃ ==========\n");
+
+    ZEROLIST_DEFINE(list, 20);
+    ZEROLIST_INIT(list);
+
+    Person people[8];
+    for (int i = 0; i < 8; i++) {
+        people[i].id = i + 1;
+        sprintf(people[i].name, "Traverse_%d", i + 1);
+        zerolist_push_back(&list, &people[i]);
+    }
+
+    // Ê¹ÓÃ LIST_FOR_EACH£¨²»°²È«£¬²»ÄÜÉ¾³ı½Úµã£©
+    printf("\n1. ZEROLIST_FOR_EACH ±éÀú:\n");
+    ZEROLIST_FOR_EACH(&list, node)
+    {
+        Person* p = (Person*)node->data;
+        printf("  %s\n", p->name);
+    }
+
+    // Ê¹ÓÃ LIST_FOR_EACH_SAFE£¨°²È«£¬¿ÉÒÔÉ¾³ı½Úµã£©
+    printf("\n2. LIST_FOR_EACH_SAFE ±éÀú²¢É¾³ı ID>5 µÄ½Úµã:\n");
+    ZEROLIST_FOR_EACH_SAFE(&list, node, tmp)
+    {
+        Person* p = (Person*)node->data;
+        if (p && p->id > 5) {
+            printf("  É¾³ı: %s\n", p->name);
+            zerolist_remove_ptr(&list, p);
+        }
+    }
+
+    printf("\nÉ¾³ıºóÊ£Óà½Úµã:\n");
+    ZEROLIST_FOR_EACH(&list, node)
+    {
+        Person* p = (Person*)node->data;
+        printf("  %s\n", p->name);
+    }
+
+    zerolist_clear(&list);
+}
+
+// ===========================================
+// Ê¾Àı 6: ĞÔÄÜÆÀ¹À
+// ===========================================
+
+void example_performance_suite(void)
+{
+    printf("\n========== Ê¾Àı 6: ĞÔÄÜÆÀ¹À ==========\n");
+
+    ZEROLIST_DEFINE(list, PERF_TEST_NODE_COUNT);
+    ZEROLIST_INIT(list);
+
+    Person* dataset = (Person*)malloc(sizeof(Person) * PERF_TEST_NODE_COUNT);
+    if (!dataset) {
+        printf("  ÎŞ·¨·ÖÅä²âÊÔÊı¾İ£¬Ìø¹ı´ËÊ¾Àı\n");
+        return;
+    }
+
+    for (int i = 0; i < PERF_TEST_NODE_COUNT; ++i) {
+        fill_person(&dataset[i], i + 1, "Perf");
+    }
+
+    double total_insert_ms   = 0.0;
+    double total_traverse_ms = 0.0;
+    double total_delete_ms   = 0.0;
+
+    for (int round = 0; round < PERF_TEST_ROUNDS; ++round) {
+        zerolist_clear(&list);
+        // ²åÈë
+        double start = now_ms();
+        for (int i = 0; i < PERF_TEST_NODE_COUNT; ++i) {
+            if (!zerolist_push_back(&list, &dataset[i])) {
+                printf("  Round %d: ²åÈëÊ§°ÜÓÚ½Úµã %d\n", round + 1, i + 1);
+                break;
+            }
+        }
+        double insert_ms = now_ms() - start;
+        total_insert_ms += insert_ms;
+
+        // ±éÀú
+        start = now_ms();
+        ZEROLIST_FOR_EACH(&list, node)
+        {
+            volatile int sink = ((Person*)node->data)->id;
+            (void)sink;
+        }
+        double traverse_ms = now_ms() - start;
+        total_traverse_ms += traverse_ms;
+
+        // É¾³ı
+        start = now_ms();
+        for (int i = 0; i < PERF_TEST_NODE_COUNT; ++i) {
+            if (!zerolist_remove_at(&list, 0)) {
+                break;
+            }
+        }
+        double delete_ms = now_ms() - start;
+        total_delete_ms += delete_ms;
+
+        printf("  Round %d: ²åÈë %.3f ms, ±éÀú %.3f ms, É¾³ı %.3f ms\n", round + 1, insert_ms,
+               traverse_ms, delete_ms);
+    }
+
+    zerolist_clear(&list);
+
+    printf("  Æ½¾ù²åÈëºÄÊ±: %.3f ms\n", total_insert_ms / PERF_TEST_ROUNDS);
+    printf("  Æ½¾ù±éÀúºÄÊ±: %.3f ms\n", total_traverse_ms / PERF_TEST_ROUNDS);
+    printf("  Æ½¾ùÉ¾³ıºÄÊ±: %.3f ms\n", total_delete_ms / PERF_TEST_ROUNDS);
+
+    free(dataset);
+}
+
+// ===========================================
+// Ê¾Àı 7: Â³°ôĞÔÓë±ß½çÑéÖ¤
+// ===========================================
+
+void example_robustness_suite(void)
+{
+    printf("\n========== Ê¾Àı 7: Â³°ôĞÔÓë±ß½çÑéÖ¤ ==========\n");
+
+    ZEROLIST_DEFINE(list, 4);
+    ZEROLIST_INIT(list);
+    Person data[4];
+    for (int i = 0; i < 4; ++i) {
+        fill_person(&data[i], i + 1, "Safe");
+    }
+
+    printf("  1) ÌîÂú»º³åÇø:\n");
+    for (int i = 0; i < 4; ++i) {
+        bool ok = zerolist_push_back(&list, &data[i]);
+        printf("     ²åÈë %s -> %s\n", data[i].name, ok ? "PASS" : "FAIL");
+    }
+
+    bool overflow = zerolist_push_back(&list, &data[0]);
+    printf("  2) »º³åÇøÂúºó¼ÌĞø²åÈë£¨ÆÚÍûÊ§°Ü£©: %s\n", overflow ? "FAIL" : "PASS");
+
+    bool invalid_index = zerolist_remove_at(&list, 10);
+    printf("  3) É¾³ıÔ½½çË÷Òı£¨ÆÚÍûÊ§°Ü£©: %s\n", invalid_index ? "FAIL" : "PASS");
+
+    bool remove_existing = zerolist_remove_ptr(&list, &data[0]);
+    bool remove_twice    = zerolist_remove_ptr(&list, &data[0]);
+    printf("  4) É¾³ı´æÔÚ½Úµã: %s, ÖØ¸´É¾³ı: %s\n", remove_existing ? "PASS" : "FAIL",
+           remove_twice ? "FAIL" : "PASS");
+
+    void* result = zerolist_at(&list, 5);
+    printf("  5) ·ÃÎÊÔ½½çË÷Òı·µ»Ø NULL: %s\n", result ? "FAIL" : "PASS");
+
+    zerolist_clear(&list);
+    zerolist_clear(&list);
+    printf("  6) ¶à´ÎÇå¿ÕÁ´±í: PASS\n");
+}
+
+// ===========================================
+// Ê¾Àı 8: ¿ÕÖ¸ÕëÓëÎó²Ù×÷ÑéÖ¤
+// ===========================================
+
+void example_null_and_misuse_suite(void)
+{
+    printf("\n========== Ê¾Àı 8: ¿ÕÖ¸ÕëÓëÎó²Ù×÷ÑéÖ¤ ==========\n");
+
+    printf("  1) NULL Á´±íÖ¸Õë´¦Àí:\n");
+    printf("     zerolist_push_back(NULL, NULL): %s\n",
+           zerolist_push_back(NULL, NULL) ? "FAIL" : "PASS");
+    printf("     zerolist_remove_ptr(NULL, NULL): %s\n",
+           zerolist_remove_ptr(NULL, NULL) ? "FAIL" : "PASS");
+    zerolist_clear(NULL);
+    zerolist_free_node(NULL, NULL);
+    printf("     zerolist_clear/zerolist_free_node(NULL): PASS (Î´±ÀÀ£)\n");
+
+    printf("  2) Î´³õÊ¼»¯Á´±í:\n");
+    Zerolist dummy = { 0 };
+    Person   tmp;
+    fill_person(&tmp, 1, "Dummy");
+    printf("     Î´³õÊ¼»¯ zerolist_push_back: %s\n",
+           zerolist_push_back(&dummy, &tmp) ? "FAIL" : "PASS");
+
+    printf("  3) Õı³£Á´±íÉÏµÄÎó²Ù×÷:\n");
+    ZEROLIST_DEFINE(list, 3);
+    ZEROLIST_INIT(list);
+    Person people[3];
+    for (int i = 0; i < 3; ++i) {
+        fill_person(&people[i], i + 1, "Err");
+        zerolist_push_back(&list, &people[i]);
+    }
+    bool remove_null = zerolist_remove_ptr(&list, NULL);
+    printf("     zerolist_remove_ptr(&list, NULL): %s\n", remove_null ? "FAIL" : "PASS");
+
+    bool del_ok      = zerolist_remove_at(&list, 1);
+    bool del_invalid = zerolist_remove_at(&list, 10);
+    printf("     É¾³ıÓĞĞ§Ë÷Òı: %s, É¾³ıÎŞĞ§Ë÷Òı: %s\n", del_ok ? "PASS" : "FAIL",
+           del_invalid ? "FAIL" : "PASS");
+
+    bool second_clear = false;
+    zerolist_clear(&list);
+    second_clear = true;
+    zerolist_clear(&list);
+    printf("     ÖØ¸´Çå¿ÕÁ´±í: %s\n", second_clear ? "PASS" : "FAIL");
+}
+
+// ===========================================
+// Ê¾Àı 9: Ëæ»ú²Ù×÷Ñ¹²â£¨²åÈë / ²éÕÒ / É¾³ı£©
+// ===========================================
+void example_random_ops_suite(void)
+{
+    printf("\n========== Ê¾Àı 9: Ëæ»ú²Ù×÷Ñ¹²â ==========\n");
+
+    ZEROLIST_DEFINE(list, RANDOM_OP_NODE_COUNT);
+    ZEROLIST_INIT(list);
+
+    Person* pool = (Person*)malloc(sizeof(Person) * RANDOM_OP_NODE_COUNT);
+    if (!pool) {
+        printf("  ÎŞ·¨·ÖÅä²âÊÔÊı¾İ£¬Ìø¹ı´ËÊ¾Àı\n");
+        return;
+    }
+
+    // ¼ÇÂ¼Êı¾İ³õÊ¼»¯Ê±¼ä
+    double init_start = now_ms();
+    for (int i = 0; i < RANDOM_OP_NODE_COUNT; ++i) {
+        fill_person(&pool[i], i + 1, "Rnd");
+    }
+    double init_time = now_ms() - init_start;
+
+    srand((unsigned int)time(NULL));
+    size_t current_size = 0;
+
+    size_t insert_ops = 0, find_ops = 0, delete_ops = 0;
+    size_t find_hits   = 0;
+    double insert_time = 0.0, find_time = 0.0, delete_time = 0.0;
+
+    // ¼ÇÂ¼×Ü²Ù×÷Ê±¼ä
+    double total_start = now_ms();
+    for (int op = 0; op < RANDOM_OP_ROUNDS; ++op) {
+        int action = rand() % 3;  // 0 insert, 1 find, 2 delete
+
+        if (action == 0) {
+            if (current_size >= RANDOM_OP_NODE_COUNT) {
+                continue;
+            }
+            ZEROLIST_TYPE idx   = (ZEROLIST_TYPE)(rand() % RANDOM_OP_NODE_COUNT);
+            double        start = now_ms();
+            bool          ok    = zerolist_push_back(&list, &pool[idx]);
+            insert_time += now_ms() - start;
+            insert_ops++;
+            if (ok) {
+                current_size++;
+            }
+        } else if (action == 1) {
+            if (current_size == 0) continue;
+            ZEROLIST_TYPE    idx   = (ZEROLIST_TYPE)(rand() % RANDOM_OP_NODE_COUNT);
+            double           start = now_ms();
+            zerolist_node_t* node  = zerolist_at(&list, idx);
+            find_time += now_ms() - start;
+            find_ops++;
+            if (node) {
+                find_hits++;
+            }
+        } else {
+            if (current_size == 0) continue;
+            ZEROLIST_TYPE idx   = (ZEROLIST_TYPE)(rand() % current_size);
+            double        start = now_ms();
+            bool          ok    = zerolist_remove_at(&list, idx);
+            delete_time += now_ms() - start;
+            delete_ops++;
+            if (ok) {
+                current_size--;
+            }
+        }
+    }
+    double total_op_time = now_ms() - total_start;
+
+    // ¼ÇÂ¼ÇåÀíÊ±¼ä
+    double cleanup_start = now_ms();
+    zerolist_clear(&list);
+    free(pool);
+    double cleanup_time = now_ms() - cleanup_start;
+
+    printf("  ×îÖÕÁ´±í´óĞ¡: %d\n", (int)zerolist_size(&list));
+    printf("  ÔËĞĞËæ»ú²Ù×÷×ÜÊı: %d\n", RANDOM_OP_ROUNDS);
+    printf("  Êı¾İ³õÊ¼»¯Ê±¼ä: %.3f ms\n", init_time);
+    printf("  ×Ü²Ù×÷Ê±¼ä: %.3f ms\n", total_op_time);
+    printf("  ÇåÀíÊ±¼ä: %.3f ms\n", cleanup_time);
+    printf("  ²åÈë: %zu ´Î, ×ÜºÄÊ± %.3f ms, Æ½¾ù %.3f us\n", insert_ops, insert_time,
+           insert_ops ? (insert_time * 1000.0 / insert_ops) : 0.0);
+    printf("  ²éÕÒ: %zu ´Î, ÃüÖĞ %zu, ×ÜºÄÊ± %.3f ms, Æ½¾ù %.3f us\n", find_ops, find_hits,
+           find_time, find_ops ? (find_time * 1000.0 / find_ops) : 0.0);
+    printf("  É¾³ı: %zu ´Î, ×ÜºÄÊ± %.3f ms, Æ½¾ù %.3f us\n", delete_ops, delete_time,
+           delete_ops ? (delete_time * 1000.0 / delete_ops) : 0.0);
+
+    // ¼ÆËã¸÷²Ù×÷Ê±¼äÕ¼±È
+    double total_actual_op_time = insert_time + find_time + delete_time;
+    if (total_actual_op_time > 0) {
+        printf("  ²åÈëÊ±¼äÕ¼±È: %.2f%%\n", (insert_time / total_actual_op_time) * 100.0);
+        printf("  ²éÕÒÊ±¼äÕ¼±È: %.2f%%\n", (find_time / total_actual_op_time) * 100.0);
+        printf("  É¾³ıÊ±¼äÕ¼±È: %.2f%%\n", (delete_time / total_actual_op_time) * 100.0);
+    }
+}
+// ===========================================
+// Ê¾Àı 10: ¶à´Î pop_at Ñ¹Á¦²âÊÔ
+// ===========================================
+
+void example_pop_at_stress_test(void)
+{
+    printf("\n========== Ê¾Àı 10: ¶à´Î pop_at Ñ¹Á¦²âÊÔ ==========\n");
+
+    const int MAX_NODES = 200;
+    const int ROUNDS    = 50;
+
+    ZEROLIST_DEFINE(list, MAX_NODES);
+    ZEROLIST_INIT(list);
+
+    Person* pool = (Person*)malloc(sizeof(Person) * MAX_NODES);
+    if (!pool) {
+        printf("  ÄÚ´æ·ÖÅäÊ§°Ü£¬Ìø¹ı´Ë²âÊÔ\n");
+        return;
+    }
+
+    // ³õÊ¼»¯Êı¾İ³Ø
+    for (int i = 0; i < MAX_NODES; ++i) {
+        fill_person(&pool[i], i + 1, "PopAt");
+    }
+
+    srand((unsigned int)time(NULL));
+
+    for (int round = 0; round < ROUNDS; ++round) {
+        // 1. Çå¿Õ²¢ÖØĞÂÌî³ä
+        zerolist_clear(&list);
+        int current_size = 10 + rand() % (MAX_NODES - 10);  // 10~199
+        for (int i = 0; i < current_size; ++i) {
+            if (!zerolist_push_back(&list, &pool[i])) {
+                printf("  Round %d: ²åÈëÊ§°Ü at %d\n", round, i);
+                goto cleanup;
+            }
+        }
+
+        // 2. Ëæ»úµ¯³öÖ±µ½Îª¿Õ
+        while (zerolist_size(&list) > 0) {
+            ZEROLIST_TYPE size = zerolist_size(&list);
+            // Ëæ»úÑ¡Ôñ²ßÂÔ£º0=front, 1=back, 2=random
+            int           strategy = rand() % 3;
+            ZEROLIST_TYPE idx;
+
+            if (strategy == 0) {
+                idx = 0;
+            } else if (strategy == 1) {
+                idx = size - 1;
+            } else {
+                idx = (ZEROLIST_TYPE)(rand() % size);
+            }
+
+            void* data = zerolist_pop_at(&list, idx);
+            if (!data) {
+                printf("  ? Round %d: pop_at(%u) ·µ»Ø NULL£¬µ« size=%u\n", round, idx, size);
+                goto cleanup;
+            }
+
+            // ¿ÉÑ¡£ºÑéÖ¤ data ÊÇ·ñÔÚÔ¤ÆÚ·¶Î§ÄÚ£¨ÕâÀïÂÔ£©
+        }
+
+        // 3. ÑéÖ¤¿ÕÁ´±í×´Ì¬
+        if (zerolist_size(&list) != 0 || list.head != NULL) {
+            printf("  ? Round %d: Çå¿ÕºóÁ´±í·Ç¿Õ\n", round);
+            goto cleanup;
+        }
+    }
+
+    printf("  ? %d ÂÖ pop_at Ñ¹Á¦²âÊÔÍ¨¹ı£¡\n", ROUNDS);
+
+cleanup:
+    zerolist_clear(&list);
+    free(pool);
+}
+// ===========================================
+// Ö÷º¯Êı
+// ===========================================
+
+int main(void)
+{
+    printf("========================================\n");
+    printf("  Ë«ÏòÑ­»·Á´±í¿âÊ¹ÓÃÊ¾Àı\n");
+    printf("========================================\n");
+
+    // Ê¾Àı 1: ¾²Ì¬Ä£Ê½£¨×ÜÊÇ¿ÉÓÃ£©
+    example_static_mode();
+
+#if LIST_USE_MALLOC
+    // Ê¾Àı 2: ¶¯Ì¬Ä£Ê½
+    example_dynamic_mode();
 #endif
 
 #if !LIST_USE_MALLOC && ZEROLIST_STATIC_FALLBACK_MALLOC
-  // ç¤ºä¾‹ 3: é™æ€æ¨¡å¼ + malloc å›é€€
-  example_static_with_fallback();
+    // Ê¾Àı 3: ¾²Ì¬Ä£Ê½ + malloc »ØÍË
+    example_static_with_fallback();
 #endif
 
 #if !LIST_USE_MALLOC && ZEROLIST_STATIC_DYNAMIC_EXPAND
-  // ç¤ºä¾‹ 4: é™æ€æ¨¡å¼ + åŠ¨æ€æ‰©å®¹
-  example_dynamic_expand();
+    // Ê¾Àı 4: ¾²Ì¬Ä£Ê½ + ¶¯Ì¬À©Èİ
+    example_dynamic_expand();
 #endif
 
-  // ç¤ºä¾‹ 5: éå†å®çš„ä½¿ç”¨
-  example_traversal_macros();
+    // Ê¾Àı 5: ±éÀúºêµÄÊ¹ÓÃ
+    example_traversal_macros();
 
-  // ç¤ºä¾‹ 6: æ€§èƒ½è¯„ä¼°
-  example_performance_suite();
+    // Ê¾Àı 6: ĞÔÄÜÆÀ¹À
+    example_performance_suite();
 
-  // ç¤ºä¾‹ 7: é²æ£’æ€§ä¸è¾¹ç•ŒéªŒè¯
-  example_robustness_suite();
+    // Ê¾Àı 7: Â³°ôĞÔÓë±ß½çÑéÖ¤
+    example_robustness_suite();
 
-  // ç¤ºä¾‹ 8: ç©ºæŒ‡é’ˆä¸è¯¯æ“ä½œéªŒè¯
-  example_null_and_misuse_suite();
+    // Ê¾Àı 8: ¿ÕÖ¸ÕëÓëÎó²Ù×÷ÑéÖ¤
+    example_null_and_misuse_suite();
 
-  // ç¤ºä¾‹ 9: éšæœºæ“ä½œå‹æµ‹
-  example_random_ops_suite();
+    // Ê¾Àı 9: Ëæ»ú²Ù×÷Ñ¹²â
+    example_random_ops_suite();
+    example_pop_at_stress_test();
+    printf("\n========================================\n");
+    printf("  ËùÓĞÊ¾ÀıÖ´ĞĞÍê³É£¡\n");
+    printf("========================================\n");
 
-  printf("\n========================================\n");
-  printf("  æ‰€æœ‰ç¤ºä¾‹æ‰§è¡Œå®Œæˆï¼\n");
-  printf("========================================\n");
-
-  return 0;
+    return 0;
 }

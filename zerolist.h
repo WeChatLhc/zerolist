@@ -113,7 +113,7 @@ extern "C" {
 
 /// @brief 节点索引和大小计数的数据类型
 /// @note 可选：uint8_t, uint16_t, uint32_t, size_t 等
-/// @note 默认：uint8_t（最大支持 255 个节点）
+/// @note 默认：uint16_t（最大支持 65535 个节点）
 /// @note 根据实际需求选择合适的类型以平衡内存和容量
 #ifndef ZEROLIST_TYPE
 #define ZEROLIST_TYPE uint16_t
@@ -369,7 +369,7 @@ typedef struct Zerolist
  * @code
  * ZEROLIST_FOR_EACH_SAFE(&my_list, node, tmp) {
  *     if (should_remove(node->data)) {
- *         zerolist_remove(&my_list, node->data);
+ *         zerolist_remove_ptr(&my_list, node->data);
  *     }
  * }
  * @endcode
@@ -510,7 +510,7 @@ bool zerolist_insert_before(Zerolist* list, void* target_data, void* new_data);
  *
  * @note 如果链表中存在多个相同的data，只删除第一个匹配的节点
  */
-bool zerolist_remove(Zerolist* list, void* data);
+bool zerolist_remove_ptr(Zerolist* list, void* data);
 
 /**
  * @brief 使用自定义比较函数删除节点（统一接口）
@@ -527,7 +527,47 @@ bool zerolist_remove(Zerolist* list, void* data);
  * @note 比较函数原型：bool cmp_func(const void* list_data, const void*
  * target_data)
  */
-bool zerolist_remove_match(Zerolist* list, void* data, bool (*cmp_func)(const void*, const void*));
+bool zerolist_remove_if(Zerolist* list, void* data, bool (*cmp_func)(const void*, const void*));
+
+/*
+ * 从指定索引位置弹出节点数据
+ *
+ * 参数:
+ *   list - 指向零列表结构的指针
+ *   index - 要弹出的节点索引位置
+ *
+ * 返回值:
+ *   成功时返回被弹出节点的数据指针，失败时返回NULL
+ *   失败情况包括：
+ *   - 列表为空或头节点为空
+ *   - 索引超出范围（当启用ZEROLIST_SIZE_ENABLE时）
+ *   - 遍历到循环列表的头部（表示索引无效）
+ */
+void* zerolist_pop_at(Zerolist* list, ZEROLIST_TYPE index);
+
+/*
+ * 从零列表尾部弹出节点数据
+ *
+ * 该函数会移除列表尾部的节点，并返回该节点中存储的数据。
+ * 如果列表为空或不存在尾部节点，则返回NULL。
+ *
+ * @param list 指向零列表的指针，不能为NULL
+ * @return 返回被弹出节点中存储的数据指针，如果操作失败则返回NULL
+ */
+void* zerolist_pop_back(Zerolist* list);
+
+/*
+ * 从循环双向链表头部移除节点并返回其数据
+ *
+ * @param list 指向zerolist链表的指针，不能为NULL
+ * @return 返回被移除节点中存储的数据指针，如果链表为空则返回NULL
+ *
+ * 注意事项：
+ * 1. 函数会处理链表为空或只有一个节点的情况
+ * 2. 在ZEROLIST_SIZE_ENABLE定义时会自动更新链表大小
+ * 3. 节点内存释放由zerolist_free_node处理
+ */
+void* zerolist_pop_front(Zerolist* list);
 
 /**
  * @brief 根据索引删除节点（统一接口）
@@ -542,7 +582,7 @@ bool zerolist_remove_match(Zerolist* list, void* data, bool (*cmp_func)(const vo
  *
  * @note 索引从0开始，0表示第一个节点
  */
-bool zerolist_delete(Zerolist* list, ZEROLIST_TYPE index);
+bool zerolist_remove_at(Zerolist* list, ZEROLIST_TYPE index);
 
 // ===========================================
 // 访问 / 查找（统一接口 - 适用于所有模式）
