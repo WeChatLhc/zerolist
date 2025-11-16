@@ -201,7 +201,6 @@ typedef struct Zerolist
     ZEROLIST_TYPE size;  ///< 当前链表中的节点数量
 #endif
     zerolist_node_t* head;  ///< 链表头节点指针
-    zerolist_node_t* tail;  ///< 链表尾节点指针
 #if !ZEROLIST_USE_MALLOC
     zerolist_node_t* node_buf;   ///< 节点缓冲区指针（静态模式）
     ZEROLIST_TYPE    max_nodes;  ///< 最大节点数量限制
@@ -232,10 +231,8 @@ typedef struct Zerolist
  * @note 缓冲区满时会自动扩容，无需手动管理
  * @note 使用完毕后需要调用 zerolist_destroy(name) 释放内存
  */
-#define ZEROLIST_DEFINE(name, _max_nodes)                                       \
-    static Zerolist name = {                                                    \
-        .head = NULL, .tail = NULL, .node_buf = NULL, .max_nodes = (_max_nodes) \
-    }
+#define ZEROLIST_DEFINE(name, _max_nodes) \
+    static Zerolist name = { .head = NULL, .node_buf = NULL, .max_nodes = (_max_nodes) }
 // 在 .h 中声明（extern）
 #define ZEROLIST_DECLARE(name) extern Zerolist name;
 /**
@@ -289,11 +286,9 @@ typedef struct Zerolist
  *
  * @note 使用此宏后需要调用 ZEROLIST_INIT(name) 进行初始化
  */
-#define ZEROLIST_DEFINE(name, _max_nodes)                                                    \
-    static zerolist_node_t name##_buf[(_max_nodes)];                                         \
-    static Zerolist        name = {                                                          \
-               .head = NULL, .tail = NULL, .node_buf = name##_buf, .max_nodes = (_max_nodes) \
-    }
+#define ZEROLIST_DEFINE(name, _max_nodes)            \
+    static zerolist_node_t name##_buf[(_max_nodes)]; \
+    static Zerolist name = { .head = NULL, .node_buf = name##_buf, .max_nodes = (_max_nodes) }
 #define ZEROLIST_DECLARE(name) extern Zerolist name;
 /**
  * @def ZEROLIST_INIT(name)

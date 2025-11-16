@@ -343,7 +343,7 @@ void zerolist_destroy(Zerolist* list)
 #endif
     list->max_nodes = 0;
     list->head      = NULL;
-    list->tail      = NULL;
+
 #if ZEROLIST_SIZE_ENABLE
     list->size = 0;
 #endif
@@ -437,8 +437,8 @@ void zerolist_init_expand(Zerolist* list, zerolist_node_t* buf,
 {
     if (!list || !buf || max_nodes == 0) return;
 
-    list->head      = NULL;
-    list->tail      = NULL;
+    list->head = NULL;
+
     list->node_buf  = buf;
     list->max_nodes = max_nodes;
 #if ZEROLIST_SIZE_ENABLE
@@ -498,11 +498,11 @@ static void _zerolist_update_node_pointers(Zerolist* list, zerolist_node_t* old_
 
     // 保存关键索引（在old_buf被覆盖前）
     ZEROLIST_TYPE head_idx = (ZEROLIST_TYPE)(list->head - old_buf);
-    ZEROLIST_TYPE tail_idx = (ZEROLIST_TYPE)(list->tail - old_buf);
+    // ZEROLIST_TYPE tail_idx = (ZEROLIST_TYPE)(list->tail - old_buf);
 
     // 更新头尾指针
     list->head = &new_buf[head_idx];
-    list->tail = &new_buf[tail_idx];
+    // list->tail = &new_buf[tail_idx];
 
     // 遍历更新所有节点指针
     zerolist_node_t* cur = list->head;
@@ -683,8 +683,8 @@ bool list_init_dynamic_expand(Zerolist* list, ZEROLIST_TYPE initial_size)
     ZEROLIST_TYPE* free_stack = NULL;
 #endif
 
-    list->head      = NULL;
-    list->tail      = NULL;
+    list->head = NULL;
+
     list->node_buf  = buf;
     list->max_nodes = initial_size;
 #if ZEROLIST_SIZE_ENABLE
@@ -740,7 +740,7 @@ static inline bool _zerolist_insert_internal(Zerolist* list, zerolist_node_t* po
 #endif
 
     if (!list->head) {
-        list->head = list->tail = node;
+        list->head = node;
         node->next = node->prev = node;
 #if ZEROLIST_SIZE_ENABLE
         list->size = 1;
@@ -748,7 +748,7 @@ static inline bool _zerolist_insert_internal(Zerolist* list, zerolist_node_t* po
         return true;
     }
 
-    if (!pos) pos = before ? list->head : list->tail;
+    if (!pos) pos = before ? list->head : list->head->prev;
 
     if (before) {
         node->prev      = pos->prev;
@@ -756,20 +756,18 @@ static inline bool _zerolist_insert_internal(Zerolist* list, zerolist_node_t* po
         pos->prev->next = node;
         pos->prev       = node;
         if (pos == list->head) {
-            list->head       = node;
-            list->head->prev = list->tail;
-            list->tail->next = list->head;
+            list->head = node;  // 只需这一行！
         }
     } else {
         node->next      = pos->next;
         node->prev      = pos;
         pos->next->prev = node;
         pos->next       = node;
-        if (pos == list->tail) {
-            list->tail       = node;
-            list->head->prev = list->tail;
-            list->tail->next = list->head;
-        }
+        // if (pos == list->tail) {
+        //     list->tail       = node;
+        //     list->head->prev = list->tail;
+        //     list->tail->next = list->head;
+        // }
     }
 #if ZEROLIST_SIZE_ENABLE
     list->size++;
@@ -786,7 +784,7 @@ bool zerolist_push_front(Zerolist* list, void* data)
 bool zerolist_push_back(Zerolist* list, void* data)
 {
     if (!list) return false;
-    return _zerolist_insert_internal(list, list->tail, data, false);
+    return _zerolist_insert_internal(list, NULL, data, false);
 }
 
 bool zerolist_insert_before(Zerolist* list, void* target_data, void* new_data)
@@ -818,22 +816,31 @@ bool zerolist_insert_before(Zerolist* list, void* target_data, void* new_data)
 static inline void _zerolist_detach_node(Zerolist* list, zerolist_node_t* cur)
 {
     if (!list || !cur) return;
+
+    // 唯一节点：摘除后链表为空
     if (cur->next == cur) {
-        list->head = list->tail = NULL;
+        list->head = NULL;
         return;
     }
 
+    // 安全检查（防御性编程）
     if (!cur->prev || !cur->next) {
-        if (cur == list->head) list->head = NULL;
-        if (cur == list->tail) list->tail = NULL;
+        if (cur == list->head) {
+            list->head = NULL;
+        }
         return;
     }
 
+    // 标准双向链表摘除
     cur->prev->next = cur->next;
     cur->next->prev = cur->prev;
 
-    if (cur == list->head) list->head = cur->next;
-    if (cur == list->tail) list->tail = cur->prev;
+    // 如果摘除的是头节点，更新 head
+    if (cur == list->head) {
+        list->head = cur->next;
+    }
+
+    // 注意：不再处理 tail，尾部由 head->prev 隐式表示
 }
 
 /*
@@ -875,9 +882,9 @@ void* zerolist_pop_front(Zerolist* list)
  */
 void* zerolist_pop_back(Zerolist* list)
 {
-    if (!list || !list->tail) return NULL;
+    if (!list || !list->head) return NULL;
 
-    zerolist_node_t* node = list->tail;
+    zerolist_node_t* node = list->head->prev;
     void*            data = node->data;
 
 #if ZEROLIST_SIZE_ENABLE
@@ -1153,20 +1160,23 @@ void zerolist_foreach(Zerolist* list, void (*callback)(void* data))
 
 void zerolist_reverse(Zerolist* list)
 {
-    if (!list || !list->head || list->head == list->tail) return;
-    zerolist_node_t* cur = list->head;
+    if (!list || !list->head) return;
+
+    // 单节点无需反转
+    if (list->head->next == list->head) return;
+
+    zerolist_node_t* cur      = list->head;
+    zerolist_node_t* old_tail = list->head->prev;  // 原尾节点将成为新头
+
     do {
         zerolist_node_t* tmp = cur->next;
         cur->next            = cur->prev;
         cur->prev            = tmp;
         cur                  = tmp;
-        if (!cur) return;
     } while (cur != list->head);
-    zerolist_node_t* tmp = list->head;
-    list->head           = list->tail;
-    list->tail           = tmp;
-}
 
+    list->head = old_tail;
+}
 void zerolist_clear(Zerolist* list)
 {
     if (!list) return;
@@ -1189,7 +1199,6 @@ void zerolist_clear(Zerolist* list)
 #endif
 
     list->head = NULL;
-    list->tail = NULL;
 #if ZEROLIST_SIZE_ENABLE
     list->size = 0;
 #endif
