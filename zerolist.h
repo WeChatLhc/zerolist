@@ -104,7 +104,7 @@ extern "C" {
 /// 释放
 /// @warning 与 ZEROLIST_STATIC_FALLBACK_MALLOC 互斥，优先使用动态扩容
 #ifndef ZEROLIST_STATIC_DYNAMIC_EXPAND
-#define ZEROLIST_STATIC_DYNAMIC_EXPAND 0
+#define ZEROLIST_STATIC_DYNAMIC_EXPAND 1
 #endif
 
 // ===========================================

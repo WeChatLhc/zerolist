@@ -12,7 +12,7 @@
 
 #include "zerolist.h"
 #include <string.h>
-
+#define ZEROLIST_SAFETY_LIMIT 65535
 // ===========================================
 // 内部宏定义（局部使用，不对外暴露）
 // ===========================================
@@ -174,27 +174,15 @@ ZEROLIST_TYPE zerolist_get_max_nodes(Zerolist* list)
     if (!list) return 0;
 
 #if ZEROLIST_USE_MALLOC
-    // 动态分配模式直接返回配置的最大节点数
-    return 0;
+    // 动态分配模式下，max_nodes无意义，始终返回0
+    return -1;
 #else
-    // 静态缓冲区模式
-    if (!list->node_buf) return 0;
-
-#if ZEROLIST_STATIC_DYNAMIC_EXPAND
-    if (list->max_nodes == 0 || list->max_nodes == (ZEROLIST_TYPE)-1) {
-        if (list->max_nodes == 0) {
-            return (ZEROLIST_TYPE)((uintptr_t)(list->node_buf + list->max_nodes)
-                                   - (uintptr_t)list->node_buf)
-                   / _ZEROLIST_NODE_SIZE;
-        }
-        return 0;  // 无效状态返回0
+    if (!list->node_buf || list->max_nodes == 0) {
+        return 0;  // 未初始化或已销毁
     }
-#endif
-
     return list->max_nodes;
 #endif
 }
-
 /**
  *Allocate linked list nodes
  *
@@ -939,26 +927,28 @@ void* zerolist_pop_at(Zerolist* list, ZEROLIST_TYPE index)
 
 bool zerolist_remove_ptr(Zerolist* list, void* data)
 {
-    if (!list || !data) return false;
+    if (!list || !data || !list->head) return false;
 
-#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
-    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
-        zerolist_node_t* node = &list->node_buf[i];
-        if (_ZEROLIST_NODE_IS_IN_USE(node) && node->data == data) {
-            _zerolist_detach_node(list, node);
-            zerolist_free_node(list, node);
+#if ZEROLIST_SIZE_ENABLE
+    zerolist_node_t* cur       = list->head;
+    ZEROLIST_TYPE    remaining = list->size;
+    while (remaining--) {
+        if (cur->data == data) {
+            _zerolist_detach_node(list, cur);
+            zerolist_free_node(list, cur);
 #if ZEROLIST_SIZE_ENABLE
             list->size--;
 #endif
             return true;
         }
+        cur = cur->next;
+        if (!cur) break;
     }
-    return false;
-
 #else
-    if (!list->head) return false;
     zerolist_node_t* start = list->head;
     zerolist_node_t* cur   = start;
+    ZEROLIST_TYPE    count = 0;
+
     do {
         if (cur->data == data) {
             _zerolist_detach_node(list, cur);
@@ -970,33 +960,37 @@ bool zerolist_remove_ptr(Zerolist* list, void* data)
         }
         cur = cur->next;
         if (!cur) break;
+        if (++count > ZEROLIST_SAFETY_LIMIT) break;
     } while (cur != start);
-    return false;
 #endif
+
+    return false;
 }
 
 bool zerolist_remove_if(Zerolist* list, void* data, bool (*cmp_func)(const void*, const void*))
 {
-    if (!list || !cmp_func) return false;
+    if (!list || !cmp_func || !list->head) return false;
 
-#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
-    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
-        zerolist_node_t* node = &list->node_buf[i];
-        if (_ZEROLIST_NODE_IS_IN_USE(node) && cmp_func(node->data, data)) {
-            _zerolist_detach_node(list, node);
-            zerolist_free_node(list, node);
+#if ZEROLIST_SIZE_ENABLE
+    zerolist_node_t* cur       = list->head;
+    ZEROLIST_TYPE    remaining = list->size;
+    while (remaining--) {
+        if (cmp_func(cur->data, data)) {
+            _zerolist_detach_node(list, cur);
+            zerolist_free_node(list, cur);
 #if ZEROLIST_SIZE_ENABLE
             list->size--;
 #endif
             return true;
         }
+        cur = cur->next;
+        if (!cur) break;
     }
-    return false;
-
 #else
-    if (!list->head) return false;
     zerolist_node_t* start = list->head;
     zerolist_node_t* cur   = start;
+    ZEROLIST_TYPE    count = 0;
+
     do {
         if (cmp_func(cur->data, data)) {
             _zerolist_detach_node(list, cur);
@@ -1008,9 +1002,11 @@ bool zerolist_remove_if(Zerolist* list, void* data, bool (*cmp_func)(const void*
         }
         cur = cur->next;
         if (!cur) break;
+        if (++count > ZEROLIST_SAFETY_LIMIT) break;
     } while (cur != start);
-    return false;
 #endif
+
+    return false;
 }
 
 bool zerolist_remove_at(Zerolist* list, ZEROLIST_TYPE index)
@@ -1049,6 +1045,7 @@ void* zerolist_at(Zerolist* list, ZEROLIST_TYPE index)
     return cur->data;
 #else
     zerolist_node_t* cur = list->head;
+    if (index > ZEROLIST_SAFETY_LIMIT) return NULL;
     for (ZEROLIST_TYPE i = 0; i < index; ++i) {
         cur = cur->next;
         if (!cur) return NULL;
@@ -1098,58 +1095,53 @@ zerolist_node_t* zerolist_find(Zerolist* list, const void* target_addr)
 zerolist_node_t* zerolist_search(Zerolist* list, const void* target_data,
                                  bool (*cmp_func)(const void*, const void*))
 {
-    if (!list || !cmp_func) return NULL;
+    if (!list || !cmp_func || !list->head) return NULL;
 
-#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
-    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
-        zerolist_node_t* node = &list->node_buf[i];
-        if (_ZEROLIST_NODE_IS_IN_USE(node) && cmp_func(node->data, target_data)) {
-            return node;
-        }
-    }
-    return NULL;
-
-#else
-    if (!list->head) return NULL;
 #if ZEROLIST_SIZE_ENABLE
     zerolist_node_t* cur       = list->head;
     ZEROLIST_TYPE    remaining = list->size;
     while (remaining--) {
         if (cmp_func(cur->data, target_data)) return cur;
         cur = cur->next;
-        if (!cur) return NULL;
+        if (!cur) break;
     }
 #else
     zerolist_node_t* start = list->head;
     zerolist_node_t* cur   = start;
+    ZEROLIST_TYPE    count = 0;
+
     do {
         if (cmp_func(cur->data, target_data)) return cur;
         cur = cur->next;
-        if (!cur) return NULL;
+        if (!cur) break;
+        if (++count > ZEROLIST_SAFETY_LIMIT) break;
     } while (cur != start);
 #endif
     return NULL;
-#endif
 }
 void zerolist_foreach(Zerolist* list, void (*callback)(void* data))
 {
-    if (!list || !callback) return;
+    if (!list || !callback || !list->head) return;
 
-#if !ZEROLIST_USE_MALLOC && !ZEROLIST_STATIC_FALLBACK_MALLOC
-    for (ZEROLIST_TYPE i = 0; i < list->max_nodes; ++i) {
-        zerolist_node_t* node = &list->node_buf[i];
-        if (_ZEROLIST_NODE_IS_IN_USE(node)) {
-            callback(node->data);
-        }
-    }
-#else
-    if (!list->head) return;
-    zerolist_node_t* start = list->head;
-    zerolist_node_t* cur   = start;
-    do {
+#if ZEROLIST_SIZE_ENABLE
+    zerolist_node_t* cur       = list->head;
+    ZEROLIST_TYPE    remaining = list->size;
+    while (remaining--) {
         callback(cur->data);
         cur = cur->next;
         if (!cur) return;
+    }
+#else
+    zerolist_node_t* start = list->head;
+    zerolist_node_t* cur   = start;
+    ZEROLIST_TYPE    count = 0;
+    do {
+        if (!cur) return;
+        callback(cur->data);
+        cur = cur->next;
+        if (++count > ZEROLIST_SAFETY_LIMIT) {
+            break;
+        }
     } while (cur != start);
 #endif
 }
@@ -1215,6 +1207,7 @@ ZEROLIST_TYPE zerolist_size(Zerolist* list)
     do {
         cnt++;
         cur = cur->next;
+        if (cnt > ZEROLIST_SAFETY_LIMIT) break;
     } while (cur != list->head);
     return cnt;
 #endif
