@@ -621,8 +621,8 @@ void example_pop_at_stress_test(void)
 {
     printf("\n========== 示例 10: 多次 pop_at 压力测试 ==========\n");
 
-    const int MAX_NODES = 200;
-    const int ROUNDS    = 50;
+#define MAX_NODES 200
+    const int ROUNDS = 50;
 
     ZEROLIST_DEFINE(list, MAX_NODES);
     ZEROLIST_INIT(list);

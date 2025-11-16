@@ -394,7 +394,7 @@ bool zerolist_reinit(Zerolist* list, ZEROLIST_TYPE initial_size)
     if (!list->node_buf || list->max_nodes == 0) return false;
 
     list->head = NULL;
-    list->tail = NULL;
+
 #if ZEROLIST_SIZE_ENABLE
     list->size = 0;
 #endif

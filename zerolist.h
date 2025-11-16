@@ -104,7 +104,7 @@ extern "C" {
 /// 释放
 /// @warning 与 ZEROLIST_STATIC_FALLBACK_MALLOC 互斥，优先使用动态扩容
 #ifndef ZEROLIST_STATIC_DYNAMIC_EXPAND
-#define ZEROLIST_STATIC_DYNAMIC_EXPAND 1
+#define ZEROLIST_STATIC_DYNAMIC_EXPAND 0
 #endif
 
 // ===========================================
@@ -258,7 +258,6 @@ typedef struct Zerolist
     static zerolist_node_t name##_buf[(_max_nodes)];          \
     static ZEROLIST_TYPE   name##_free_stack[(_max_nodes)];   \
     static Zerolist        name = { .head       = NULL,       \
-                                    .tail       = NULL,       \
                                     .node_buf   = name##_buf, \
                                     .max_nodes  = _max_nodes, \
                                     .free_top   = _max_nodes, \
